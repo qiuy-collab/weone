@@ -11,11 +11,12 @@ import (
 )
 
 const (
-	maxConsecutiveFailures = 5
-	initialBackoff         = 3 * time.Second
-	maxBackoff             = 60 * time.Second
-	sessionExpiredBackoff  = 5 * time.Second
-	errCodeSessionExpired  = -14
+	maxConsecutiveFailures  = 5
+	initialBackoff          = 3 * time.Second
+	maxBackoff              = 60 * time.Second
+	sessionExpiredBackoff   = 5 * time.Second
+	errCodeSessionExpired   = -14
+	reloginReminderInterval = 2 * time.Minute
 )
 
 // MessageHandler is called for each received message.
@@ -23,22 +24,24 @@ type MessageHandler func(ctx context.Context, client *Client, msg WeixinMessage)
 
 // Monitor manages the long-poll loop for receiving messages.
 type Monitor struct {
-	client        *Client
-	handler       MessageHandler
-	getUpdatesBuf string
-	bufPath       string
-	failures      int
-	lastActivity  time.Time
+	client                *Client
+	handler               MessageHandler
+	getUpdatesBuf         string
+	bufPath               string
+	failures              int
+	lastActivity          time.Time
+	lastReloginLogAt      time.Time
+	reloginStateAnnounced bool
 }
 
 // NewMonitor creates a new long-poll monitor.
 func NewMonitor(client *Client, handler MessageHandler) (*Monitor, error) {
-	home, err := os.UserHomeDir()
+	accountID := NormalizeAccountID(client.BotID())
+	accountsDir, err := AccountsDir()
 	if err != nil {
 		return nil, err
 	}
-	accountID := NormalizeAccountID(client.BotID())
-	bufPath := filepath.Join(home, ".weclaw", "accounts", accountID+".sync.json")
+	bufPath := filepath.Join(accountsDir, accountID+".sync.json")
 
 	m := &Monitor{
 		client:       client,
@@ -53,6 +56,7 @@ func NewMonitor(client *Client, handler MessageHandler) (*Monitor, error) {
 // Run starts the long-poll loop. It blocks until ctx is cancelled.
 // Automatically recovers from errors with exponential backoff.
 func (m *Monitor) Run(ctx context.Context) error {
+	log.Printf("[monitor] bot=%s state=connecting", m.client.BotID())
 	log.Println("[monitor] starting long-poll loop")
 
 	for {
@@ -70,8 +74,8 @@ func (m *Monitor) Run(ctx context.Context) error {
 			}
 			m.failures++
 			backoff := m.calcBackoff()
-			log.Printf("[monitor] GetUpdates error (%d/%d, backoff=%s): %v",
-				m.failures, maxConsecutiveFailures, backoff, err)
+			log.Printf("[monitor] bot=%s state=reconnecting failures=%d/%d backoff=%s err=%v",
+				m.client.BotID(), m.failures, maxConsecutiveFailures, backoff, err)
 			if m.failures == maxConsecutiveFailures {
 				log.Printf("[monitor] WARNING: %d consecutive failures. If this persists, run `weclaw login` to re-authenticate.", maxConsecutiveFailures)
 			}
@@ -84,19 +88,21 @@ func (m *Monitor) Run(ctx context.Context) error {
 		}
 
 		// Reset failure counter on any successful response
+		if m.failures > 0 {
+			log.Printf("[monitor] bot=%s state=recovered failures=%d", m.client.BotID(), m.failures)
+		}
 		m.failures = 0
 		m.lastActivity = time.Now()
 
 		// Session expired — reset sync buf and reconnect silently
 		if resp.ErrCode == errCodeSessionExpired {
 			if m.getUpdatesBuf != "" {
-				log.Printf("[monitor] session expired, resetting sync buf")
+				log.Printf("[monitor] bot=%s state=session-expired action=reset-sync-buf", m.client.BotID())
 				m.getUpdatesBuf = ""
 				m.saveBuf()
+				m.reloginStateAnnounced = false
 			} else {
-				// Sync buf already empty but still getting session expired:
-				// the bot token itself has expired. The user needs to re-login.
-				log.Printf("[monitor] WARNING: WeChat session expired and cannot be auto-recovered. Run `weclaw login` to re-authenticate.")
+				m.logReloginRequired()
 			}
 			select {
 			case <-time.After(sessionExpiredBackoff):
@@ -105,6 +111,7 @@ func (m *Monitor) Run(ctx context.Context) error {
 			}
 			continue
 		}
+		m.clearReloginRequired()
 
 		// Other server errors
 		if resp.Ret != 0 && resp.ErrCode != 0 {
@@ -119,10 +126,38 @@ func (m *Monitor) Run(ctx context.Context) error {
 		}
 
 		// Process messages concurrently — don't block the poll loop
+		if len(resp.Msgs) > 0 {
+			log.Printf("[monitor] bot=%s state=updates-received count=%d", m.client.BotID(), len(resp.Msgs))
+		}
 		for _, msg := range resp.Msgs {
 			go m.handler(ctx, m.client, msg)
 		}
 	}
+}
+
+func (m *Monitor) logReloginRequired() {
+	now := time.Now()
+	if m.reloginStateAnnounced && now.Sub(m.lastReloginLogAt) < reloginReminderInterval {
+		return
+	}
+	if m.reloginStateAnnounced {
+		log.Printf("[monitor] bot=%s state=session-expired action=relogin-required reminder=still-expired suggestion=remove-account-or-login-again", m.client.BotID())
+	} else {
+		log.Printf("[monitor] bot=%s state=session-expired action=relogin-required message=account-expired suggestion=remove-account-or-login-again", m.client.BotID())
+	}
+	m.reloginStateAnnounced = true
+	m.lastReloginLogAt = now
+	MarkAccountReloginRequired(m.client.BotID(), true)
+}
+
+func (m *Monitor) clearReloginRequired() {
+	if !m.reloginStateAnnounced {
+		MarkAccountReloginRequired(m.client.BotID(), false)
+		return
+	}
+	m.reloginStateAnnounced = false
+	m.lastReloginLogAt = time.Time{}
+	MarkAccountReloginRequired(m.client.BotID(), false)
 }
 
 // calcBackoff returns an exponential backoff duration capped at maxBackoff.

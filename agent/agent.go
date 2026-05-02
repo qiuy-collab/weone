@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/qiuy-collab/weone/config"
 )
 
 // AgentInfo holds metadata about an agent for logging/debugging.
@@ -27,13 +29,13 @@ func (i AgentInfo) String() string {
 	return s
 }
 
-// defaultWorkspace returns ~/.weclaw/workspace as the default working directory.
+// defaultWorkspace returns the default working directory under the runtime state dir.
 func defaultWorkspace() string {
-	home, err := os.UserHomeDir()
+	root, err := config.StateDir()
 	if err != nil {
 		return os.TempDir()
 	}
-	dir := filepath.Join(home, ".weclaw", "workspace")
+	dir := filepath.Join(root, "workspace")
 	os.MkdirAll(dir, 0o755)
 	return dir
 }

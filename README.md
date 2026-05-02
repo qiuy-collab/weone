@@ -1,4 +1,4 @@
-# WeClaw
+# weone
 
 [中文文档](README_CN.md)
 
@@ -14,28 +14,28 @@ WeChat AI Agent Bridge — connect WeChat to AI agents (Claude, Codex, Gemini, K
 
 ```bash
 # One-line install
-curl -sSL https://raw.githubusercontent.com/fastclaw-ai/weclaw/main/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/qiuy-collab/weone/main/install.sh | sh
 
 # Start (first run will prompt QR code login)
 weclaw start
 ```
 
-That's it. On first start, WeClaw will:
+That's it. On first start, weone will:
 1. Show a QR code — scan with WeChat to login
 2. Auto-detect installed AI agents (Claude, Codex, Gemini, etc.)
-3. Save config to `~/.weclaw/config.json`
+3. Save config to `~/.weone/config.json`
 4. Start receiving and replying to WeChat messages
 
-Use `weclaw login` to add additional WeChat accounts.
+Use `weone login` to add additional WeChat accounts.
 
 ### Other install methods
 
 ```bash
 # Via Go
-go install github.com/fastclaw-ai/weclaw@latest
+go install github.com/qiuy-collab/weone@latest
 
 # Via Docker
-docker run -it -v ~/.weclaw:/root/.weclaw ghcr.io/fastclaw-ai/weclaw start
+docker run -it -v ~/.weone:/root/.weone ghcr.io/qiuy-collab/weone start
 ```
 
 ## How It Works
@@ -100,11 +100,11 @@ Switching default agent is persisted to config — survives restarts.
 
 ## Media Messages
 
-WeClaw supports sending images, videos, files, and voice messages to/from WeChat.
+weone supports sending images, videos, files, and voice messages to/from WeChat.
 
-**Voice messages:** When you send a voice message in WeChat, WeClaw automatically uses WeChat's speech-to-text transcription and forwards the text to the AI agent. Duplicate voice message events are automatically deduplicated.
+**Voice messages:** When you send a voice message in WeChat, weone automatically uses WeChat's speech-to-text transcription and forwards the text to the AI agent. Duplicate voice message events are automatically deduplicated.
 
-**From agent replies:** When an AI agent returns markdown with images (`![](url)`), WeClaw automatically extracts the image URLs, downloads them, uploads to WeChat CDN (AES-128-ECB encrypted), and sends them as image messages.
+**From agent replies:** When an AI agent returns markdown with images (`![](url)`), weone automatically extracts the image URLs, downloads them, uploads to WeChat CDN (AES-128-ECB encrypted), and sends them as image messages.
 
 **Markdown handling:** Agent responses are automatically converted from markdown to plain text for WeChat display — code fences are stripped, links show display text only, bold/italic markers are removed, etc.
 
@@ -116,25 +116,25 @@ Send messages to WeChat users without waiting for them to message first.
 
 ```bash
 # Send text
-weclaw send --to "user_id@im.wechat" --text "Hello from weclaw"
+weone send --to "user_id@im.wechat" --text "Hello from weone"
 
 # Send image
-weclaw send --to "user_id@im.wechat" --media "https://example.com/photo.png"
+weone send --to "user_id@im.wechat" --media "https://example.com/photo.png"
 
 # Send text + image
-weclaw send --to "user_id@im.wechat" --text "Check this out" --media "https://example.com/photo.png"
+weone send --to "user_id@im.wechat" --text "Check this out" --media "https://example.com/photo.png"
 
 # Send file
-weclaw send --to "user_id@im.wechat" --media "https://example.com/report.pdf"
+weone send --to "user_id@im.wechat" --media "https://example.com/report.pdf"
 ```
 
-**HTTP API** (runs on `127.0.0.1:18011` when `weclaw start` is running):
+**HTTP API** (runs on `127.0.0.1:18011` when `weone start` is running):
 
 ```bash
 # Send text
 curl -X POST http://127.0.0.1:18011/api/send \
   -H "Content-Type: application/json" \
-  -d '{"to": "user_id@im.wechat", "text": "Hello from weclaw"}'
+  -d '{"to": "user_id@im.wechat", "text": "Hello from weone"}'
 
 # Send image
 curl -X POST http://127.0.0.1:18011/api/send \
@@ -153,7 +153,7 @@ Set `WECLAW_API_ADDR` to change the listen address (e.g. `0.0.0.0:18011`).
 
 ## Configuration
 
-Config file: `~/.weclaw/config.json`
+Config file: `~/.weone/config.json`
 
 ```json
 {
@@ -233,7 +233,7 @@ Example:
 }
 ```
 
-Set `cwd` to specify the agent's working directory (workspace). If omitted, defaults to `~/.weclaw/workspace`.
+Set `cwd` to specify the agent's working directory (workspace). If omitted, defaults to `~/.weone/workspace`.
 
 > **Warning:** These flags disable safety checks. Only enable them if you understand the risks. ACP agents handle permissions automatically and don't need these flags.
 
@@ -241,54 +241,54 @@ Set `cwd` to specify the agent's working directory (workspace). If omitted, defa
 
 ```bash
 # Start (runs in background by default)
-weclaw start
+weone start
 
 # Check if running
-weclaw status
+weone status
 
 # Stop
-weclaw stop
+weone stop
 
 # Run in foreground (for debugging)
-weclaw start -f
+weone start -f
 ```
 
-Logs are written to `~/.weclaw/weclaw.log`.
+Logs are written to `~/.weone/weone.log`.
 
 ### System service (auto-start on boot)
 
 **macOS (launchd):**
 
 ```bash
-cp service/com.fastclaw.weclaw.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.fastclaw.weclaw.plist
+cp service/com.fastclaw.weclaw.plist ~/Library/LaunchAgents/com.qiuy-collab.weone.plist
+launchctl load ~/Library/LaunchAgents/com.qiuy-collab.weone.plist
 ```
 
 **Linux (systemd):**
 
 ```bash
-sudo cp service/weclaw.service /etc/systemd/system/
-sudo systemctl enable --now weclaw
+sudo cp service/weclaw.service /etc/systemd/system/weone.service
+sudo systemctl enable --now weone
 ```
 
 ## Docker
 
 ```bash
 # Build
-docker build -t weclaw .
+docker build -t weone .
 
 # Login (interactive — scan QR code)
-docker run -it -v ~/.weclaw:/root/.weclaw weclaw login
+docker run -it -v ~/.weone:/root/.weone weone login
 
 # Start with HTTP agent
-docker run -d --name weclaw \
-  -v ~/.weclaw:/root/.weclaw \
+docker run -d --name weone \
+  -v ~/.weone:/root/.weone \
   -e OPENCLAW_GATEWAY_URL=https://api.example.com \
   -e OPENCLAW_GATEWAY_TOKEN=sk-xxx \
-  weclaw
+  weone
 
 # View logs
-docker logs -f weclaw
+docker logs -f weone
 ```
 
 > Note: ACP and CLI agents require the agent binary inside the container.
@@ -309,10 +309,10 @@ The workflow builds binaries for `darwin/linux/windows` x `amd64/arm64`, creates
 
 ```bash
 # Update to the latest version (auto-restarts if running)
-weclaw update
+weone update
 
 # Check current version
-weclaw version
+weone version
 ```
 
 ## Development
@@ -322,21 +322,21 @@ weclaw version
 make dev
 
 # Build
-go build -o weclaw .
+go build -o weone .
 
 # Run
-./weclaw start
+./weone start
 ```
 
 ## Contributors
 
-<a href="https://github.com/fastclaw-ai/weclaw/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=fastclaw-ai/weclaw" />
+<a href="https://github.com/qiuy-collab/weone/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=qiuy-collab/weone" />
 </a>
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=fastclaw-ai/weclaw&type=Timeline)](https://star-history.com/#fastclaw-ai/weclaw&Timeline)
+[![Star History Chart](https://api.star-history.com/svg?repos=qiuy-collab/weone&type=Timeline)](https://star-history.com/#qiuy-collab/weone&Timeline)
 
 ## License
 

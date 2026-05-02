@@ -3,8 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -15,26 +13,19 @@ func init() {
 
 var restartCmd = &cobra.Command{
 	Use:   "restart",
-	Short: "Restart the background weclaw process",
+	Short: "Restart the background weone process",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Stop if running
-		pid, err := readPid()
-		if err == nil && processExists(pid) {
-			fmt.Printf("Stopping weclaw (pid=%d)...\n", pid)
-			if p, err := os.FindProcess(pid); err == nil {
-				p.Signal(syscall.SIGTERM)
+		if running, pid := currentInstancePID(); running {
+			fmt.Printf("Stopping weone (pid=%d)...\n", pid)
+			if stopProcess(pid) {
+				_ = os.Remove(pidFile())
+			} else {
+				return fmt.Errorf("failed to stop weone (pid=%d)", pid)
 			}
-			for i := 0; i < 20; i++ {
-				if !processExists(pid) {
-					break
-				}
-				time.Sleep(500 * time.Millisecond)
-			}
-			os.Remove(pidFile())
 		}
 
 		// Start
-		fmt.Println("Starting weclaw...")
-		return runDaemon()
+		fmt.Println("Starting weone...")
+		return runDaemon(resolveAPIAddr(""))
 	},
 }

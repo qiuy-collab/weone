@@ -94,8 +94,8 @@ func TestDefaultConfigInitializesAgentsMap(t *testing.T) {
 }
 
 func TestLoadEnvOverridesTopLevelOnly(t *testing.T) {
-	t.Setenv("WECLAW_DEFAULT_AGENT", "codex")
-	t.Setenv("WECLAW_API_ADDR", "127.0.0.1:18011")
+	t.Setenv("WEONE_DEFAULT_AGENT", "codex")
+	t.Setenv("WEONE_API_ADDR", "127.0.0.1:18011")
 
 	cfg := DefaultConfig()
 	cfg.Agents["claude"] = AgentConfig{

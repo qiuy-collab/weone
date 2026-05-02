@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.fastclaw.weclaw</string>
+    <string>com.qiuy-collab.weone</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/weclaw</string>
+        <string>/usr/local/bin/weone</string>
         <string>start</string>
     </array>
     <key>RunAtLoad</key>
@@ -14,8 +14,8 @@
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/weclaw.log</string>
+    <string>/tmp/weone.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/weclaw.log</string>
+    <string>/tmp/weone.log</string>
 </dict>
 </plist>

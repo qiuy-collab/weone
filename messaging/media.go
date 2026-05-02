@@ -13,11 +13,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fastclaw-ai/weclaw/ilink"
+	"github.com/qiuy-collab/weone/ilink"
 )
 
 // reMarkdownImage matches markdown image syntax: ![alt](url)
 var reMarkdownImage = regexp.MustCompile(`!\[[^\]]*\]\(([^)]+)\)`)
+var reMaterialDirective = regexp.MustCompile(`(?m)^\[\[material:id=([^;\]]+);kind=([^;\]]+);title=([^\]]+)\]\]$`)
+
+type MaterialDirective struct {
+	ID    string
+	Kind  string
+	Title string
+}
 
 // ExtractImageURLs extracts image URLs from markdown text.
 func ExtractImageURLs(text string) []string {
@@ -30,6 +37,32 @@ func ExtractImageURLs(text string) []string {
 		}
 	}
 	return urls
+}
+
+func ExtractMaterialDirectives(text string) []MaterialDirective {
+	matches := reMaterialDirective.FindAllStringSubmatch(text, -1)
+	directives := make([]MaterialDirective, 0, len(matches))
+	for _, m := range matches {
+		if len(m) < 4 {
+			continue
+		}
+		directive := MaterialDirective{
+			ID:    strings.TrimSpace(m[1]),
+			Kind:  strings.TrimSpace(strings.ToLower(m[2])),
+			Title: strings.TrimSpace(m[3]),
+		}
+		if directive.ID == "" || directive.Kind == "" {
+			continue
+		}
+		directives = append(directives, directive)
+	}
+	return directives
+}
+
+func StripMaterialDirectives(text string) string {
+	cleaned := reMaterialDirective.ReplaceAllString(text, "")
+	cleaned = strings.ReplaceAll(cleaned, "\n\n\n", "\n\n")
+	return strings.TrimSpace(cleaned)
 }
 
 // SendMediaFromURL downloads a file from a URL and sends it as a media message.
@@ -57,14 +90,16 @@ func sendMediaData(ctx context.Context, client *ilink.Client, toUserID, fileName
 		fileName = "file"
 	}
 
+	start := time.Now()
 	cdnMediaType, itemType := classifyMedia(contentType, source)
-
-	log.Printf("[media] uploading %s (%s, %d bytes) for %s", source, contentType, len(data), toUserID)
+	log.Printf("[media] to=%s stage=prepare state=start file=%q source=%s content_type=%s raw_bytes=%d cdn_media_type=%d item_type=%d has_context_token=%t", toUserID, fileName, source, contentType, len(data), cdnMediaType, itemType, strings.TrimSpace(contextToken) != "")
 
 	uploaded, err := UploadFileToCDN(ctx, client, data, toUserID, cdnMediaType)
 	if err != nil {
+		log.Printf("[media] to=%s stage=upload state=failed elapsed=%s source=%s err=%v", toUserID, time.Since(start), source, err)
 		return fmt.Errorf("upload to CDN: %w", err)
 	}
+	log.Printf("[media] to=%s stage=upload state=finished elapsed=%s source=%s cipher_bytes=%d download_param_chars=%d", toUserID, time.Since(start), source, uploaded.CipherSize, len(uploaded.DownloadParam))
 
 	media := &ilink.MediaInfo{
 		EncryptQueryParam: uploaded.DownloadParam,
@@ -114,14 +149,19 @@ func sendMediaData(ctx context.Context, client *ilink.Client, toUserID, fileName
 		BaseInfo: ilink.BaseInfo{},
 	}
 
+	log.Printf("[media] to=%s stage=send-message state=start source=%s item_type=%d", toUserID, source, itemType)
 	resp, err := client.SendMessage(ctx, req)
 	if err != nil {
+		log.Printf("[media] to=%s stage=send-message state=failed elapsed=%s source=%s err=%v", toUserID, time.Since(start), source, err)
 		return fmt.Errorf("send media message: %w", err)
 	}
 	if resp.Ret != 0 {
-		return fmt.Errorf("send media failed: ret=%d errmsg=%s", resp.Ret, resp.ErrMsg)
+		err := fmt.Errorf("send media failed: ret=%d errmsg=%s", resp.Ret, resp.ErrMsg)
+		log.Printf("[media] to=%s stage=send-message state=failed elapsed=%s source=%s ret=%d errmsg=%q", toUserID, time.Since(start), source, resp.Ret, resp.ErrMsg)
+		return err
 	}
 
+	log.Printf("[media] to=%s stage=send-message state=sent elapsed=%s source=%s", toUserID, time.Since(start), source)
 	log.Printf("[media] sent %s to %s from %s", contentType, toUserID, source)
 	return nil
 }

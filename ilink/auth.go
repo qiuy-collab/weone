@@ -6,17 +6,41 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"sync"
 	"time"
+
+	"github.com/qiuy-collab/weone/config"
 )
 
 const (
-	qrCodeURL     = "https://ilinkai.weixin.qq.com/ilink/bot/get_bot_qrcode?bot_type=3"
-	qrStatusURL   = "https://ilinkai.weixin.qq.com/ilink/bot/get_qrcode_status?qrcode="
-	statusWait     = "wait"
-	statusScanned  = "scaned"
+	qrCodeURL       = "https://ilinkai.weixin.qq.com/ilink/bot/get_bot_qrcode?bot_type=3"
+	qrStatusURL     = "https://ilinkai.weixin.qq.com/ilink/bot/get_qrcode_status?qrcode="
+	statusWait      = "wait"
+	statusScanned   = "scaned"
 	statusConfirmed = "confirmed"
-	statusExpired  = "expired"
+	statusExpired   = "expired"
 )
+
+var accountStatusRegistry sync.Map
+
+// AccountInfo describes a saved account plus its current runtime status summary.
+type AccountInfo struct {
+	BotID          string    `json:"bot_id"`
+	UserID         string    `json:"user_id,omitempty"`
+	BaseURL        string    `json:"base_url,omitempty"`
+	CredentialPath string    `json:"credential_path"`
+	SyncPath       string    `json:"sync_path"`
+	HasSyncState   bool      `json:"has_sync_state"`
+	NeedsRelogin   bool      `json:"needs_relogin"`
+	Loaded         bool      `json:"loaded"`
+	UpdatedAt      time.Time `json:"updated_at,omitempty"`
+}
+
+type accountStatus struct {
+	NeedsRelogin bool
+	UpdatedAt    time.Time
+}
 
 // FetchQRCode retrieves a new QR code for login.
 func FetchQRCode(ctx context.Context) (*QRCodeResponse, error) {
@@ -79,11 +103,11 @@ func PollQRStatus(ctx context.Context, qrcode string, onStatus func(status strin
 
 // AccountsDir returns the directory where account credentials are stored.
 func AccountsDir() (string, error) {
-	home, err := os.UserHomeDir()
+	root, err := config.StateDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".weclaw", "accounts"), nil
+	return filepath.Join(root, "accounts"), nil
 }
 
 // NormalizeAccountID converts raw bot ID to filesystem-safe format.
@@ -115,7 +139,7 @@ func indexOf(s, sub string) int {
 	return -1
 }
 
-// SaveCredentials saves credentials to disk under ~/.weclaw/accounts/{id}.json.
+// SaveCredentials saves credentials to disk under the runtime accounts directory.
 func SaveCredentials(creds *Credentials) error {
 	dir, err := AccountsDir()
 	if err != nil {
@@ -136,6 +160,7 @@ func SaveCredentials(creds *Credentials) error {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write credentials: %w", err)
 	}
+	MarkAccountReloginRequired(creds.ILinkBotID, false)
 	return nil
 }
 
@@ -156,10 +181,11 @@ func LoadAllCredentials() ([]*Credentials, error) {
 
 	var result []*Credentials
 	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+		name := e.Name()
+		if e.IsDir() || filepath.Ext(name) != ".json" || isSyncStateFile(name) {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			continue
 		}
@@ -169,6 +195,112 @@ func LoadAllCredentials() ([]*Credentials, error) {
 		}
 	}
 	return result, nil
+}
+
+// ListAccounts returns saved accounts with runtime status summary.
+func ListAccounts(loadedBotIDs []string) ([]AccountInfo, error) {
+	dir, err := AccountsDir()
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read accounts dir: %w", err)
+	}
+
+	loadedSet := make(map[string]bool, len(loadedBotIDs))
+	for _, botID := range loadedBotIDs {
+		if botID != "" {
+			loadedSet[botID] = true
+		}
+	}
+
+	var result []AccountInfo
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || filepath.Ext(name) != ".json" || isSyncStateFile(name) {
+			continue
+		}
+
+		path := filepath.Join(dir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var creds Credentials
+		if err := json.Unmarshal(data, &creds); err != nil || creds.BotToken == "" {
+			continue
+		}
+
+		syncPath := filepath.Join(dir, NormalizeAccountID(creds.ILinkBotID)+".sync.json")
+		_, syncErr := os.Stat(syncPath)
+		status, _ := GetAccountStatus(creds.ILinkBotID)
+		result = append(result, AccountInfo{
+			BotID:          creds.ILinkBotID,
+			UserID:         creds.ILinkUserID,
+			BaseURL:        creds.BaseURL,
+			CredentialPath: path,
+			SyncPath:       syncPath,
+			HasSyncState:   syncErr == nil,
+			NeedsRelogin:   status.NeedsRelogin,
+			Loaded:         loadedSet[creds.ILinkBotID],
+			UpdatedAt:      status.UpdatedAt,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].BotID < result[j].BotID
+	})
+	return result, nil
+}
+
+// RemoveAccount deletes the saved credentials and sync state for an account.
+func RemoveAccount(botID string) error {
+	dir, err := AccountsDir()
+	if err != nil {
+		return err
+	}
+	id := NormalizeAccountID(botID)
+	credPath := filepath.Join(dir, id+".json")
+	syncPath := filepath.Join(dir, id+".sync.json")
+
+	if err := os.Remove(credPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove credentials: %w", err)
+	}
+	if err := os.Remove(syncPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove sync state: %w", err)
+	}
+	accountStatusRegistry.Delete(botID)
+	return nil
+}
+
+// MarkAccountReloginRequired updates the current runtime status for an account.
+func MarkAccountReloginRequired(botID string, required bool) {
+	if botID == "" {
+		return
+	}
+	accountStatusRegistry.Store(botID, accountStatus{NeedsRelogin: required, UpdatedAt: time.Now()})
+}
+
+// GetAccountStatus returns the current runtime status for an account.
+func GetAccountStatus(botID string) (AccountInfo, bool) {
+	v, ok := accountStatusRegistry.Load(botID)
+	if !ok {
+		return AccountInfo{}, false
+	}
+	status, ok := v.(accountStatus)
+	if !ok {
+		return AccountInfo{}, false
+	}
+	return AccountInfo{BotID: botID, NeedsRelogin: status.NeedsRelogin, UpdatedAt: status.UpdatedAt}, true
+}
+
+func isSyncStateFile(name string) bool {
+	return len(name) >= len(".sync.json") && name[len(name)-len(".sync.json"):] == ".sync.json"
 }
 
 // CredentialsPath returns the path for display purposes.

@@ -1,0 +1,1337 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>weone</title>
+  <style>
+    :root{
+      --bg:#f4f7fb;
+      --surface:#ffffff;
+      --surface-2:#f8faff;
+      --text:#162033;
+      --muted:#66748f;
+      --line:#dbe5f2;
+      --primary:#4f7cff;
+      --primary-2:#eaf0ff;
+      --success:#0d9f6e;
+      --danger:#d14343;
+      --shadow:0 18px 50px rgba(22,32,51,.08);
+      --radius:20px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:linear-gradient(180deg,#eef4ff 0%,var(--bg) 180px);color:var(--text)}
+    .wrap{max-width:1120px;margin:0 auto;padding:40px 24px 56px}
+    .hero{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}
+    .hero h1{margin:0 0 10px;font-size:36px;line-height:1.1}
+    .hero p{margin:0;color:var(--muted);font-size:16px;max-width:680px}
+    .badge{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:999px;background:rgba(79,124,255,.10);color:var(--primary);font-weight:700;font-size:14px}
+    .dot{width:10px;height:10px;border-radius:999px;background:var(--primary)}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+    .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px}
+    .card h2{margin:0 0 8px;font-size:22px}
+    .card p{margin:0;color:var(--muted);font-size:14px}
+    .stack{display:grid;gap:14px;margin-top:18px}
+    label{display:block;font-size:13px;font-weight:700;color:#3e4d69;margin-bottom:8px}
+    input,textarea{width:100%;padding:14px 15px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2);font-size:14px;color:var(--text);outline:none}
+    textarea{min-height:120px;resize:vertical;font-family:inherit;line-height:1.5}
+    #profileContent{min-height:420px;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",Menlo,monospace;line-height:1.7}
+    input:focus,textarea:focus{border-color:var(--primary);box-shadow:0 0 0 4px rgba(79,124,255,.12)}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    button{border:none;border-radius:14px;padding:13px 18px;font-size:14px;font-weight:700;cursor:pointer;transition:.18s ease}
+    button.primary{background:var(--primary);color:#fff}
+    button.primary:hover{transform:translateY(-1px)}
+    button.secondary{background:var(--primary-2);color:var(--primary)}
+    button.danger{background:#fff1f1;color:var(--danger)}
+    .mini{font-size:12px;color:var(--muted)}
+    .result,.summary,.bind,.accounts,.logs,.memory-box{margin-top:18px;border:1px solid var(--line);background:var(--surface-2);border-radius:16px;padding:16px}
+    .result strong,.summary strong,.bind strong,.accounts strong,.logs strong,.memory-box strong{display:block;margin-bottom:8px;font-size:14px}
+    .kv{display:grid;grid-template-columns:130px 1fr;gap:8px 12px;font-size:14px}
+    .kv div:nth-child(odd){color:var(--muted)}
+    .ok{color:var(--success)}
+    .bad{color:var(--danger)}
+    .qr-shell{margin-top:18px;display:grid;justify-items:center;gap:14px}
+    img.qr{width:min(100%,280px);aspect-ratio:1/1;object-fit:contain;background:#fff;border:1px solid var(--line);border-radius:20px;padding:12px}
+    .status-pill{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:#eef3ff;color:#3555b8;font-weight:700;font-size:13px}
+    .account-list{display:grid;gap:12px;margin-top:12px}
+    .account-item,.memory-item{display:grid;gap:10px;padding:14px;border:1px solid var(--line);border-radius:14px;background:#fff}
+    .account-item .meta,.memory-item .meta{display:grid;gap:6px}
+    .logs pre{margin:0;white-space:pre-wrap;word-break:break-word;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;max-height:360px;overflow:auto;background:#0f172a;color:#dbeafe;border-radius:14px;padding:16px}
+    @media (max-width: 940px){.hero,.grid{grid-template-columns:1fr;display:grid}.hero{gap:16px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <div>
+        <h1>weone 控制台</h1>
+        <p>配置模型 API，测试连接，然后绑定微信开始使用。</p>
+      </div>
+      <div class="badge"><span class="dot"></span><span id="heroStatus">服务运行中</span></div>
+    </section>
+
+    <div class="grid">
+      <section class="card">
+        <h2>API 接入</h2>
+        <p>这里只保留真正需要的 3 个字段：Base URL、API Key、Model Name。</p>
+        <div class="stack">
+          <div>
+            <label for="baseUrl">Base URL</label>
+            <input id="baseUrl" placeholder="https://api.example.com/v1/chat/completions">
+          </div>
+          <div>
+            <label for="apiKey">API Key</label>
+            <input id="apiKey" placeholder="sk-...">
+          </div>
+          <div>
+            <label for="modelName">Model Name</label>
+            <input id="modelName" placeholder="gpt-4o-mini">
+          </div>
+          <div class="row">
+            <button id="testConnection" class="secondary">测试连接</button>
+            <button id="saveConfig" class="primary">保存配置</button>
+            <span id="configMessage" class="mini"></span>
+          </div>
+        </div>
+        <div class="result" id="testResult">
+          <strong>连接结果</strong>
+          <div class="mini">还没有进行测试。</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>人设设置</h2>
+        <p>单独设置陪伴助手的系统提示词、身份、语气和回复风格。</p>
+        <div class="stack">
+          <div>
+            <label for="systemPrompt">系统提示词</label>
+            <textarea id="systemPrompt" placeholder="例如：你是一个温柔、稳定、有边界感的陪伴助手。优先理解用户情绪，再给出自然回应。"></textarea>
+          </div>
+          <div>
+            <label for="identity">身份 / 人设</label>
+            <input id="identity" placeholder="例如：你的专属陪伴助手">
+          </div>
+          <div>
+            <label for="tone">回复语气</label>
+            <input id="tone" placeholder="例如：温柔、自然、像朋友聊天">
+          </div>
+          <div>
+            <label for="style">回复风格</label>
+            <input id="style" placeholder="例如：简短、真诚、少说教">
+          </div>
+          <div class="mini">保存按钮与 API 接入共用，修改后会一并保存。</div>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:20px">
+      <h2>微信绑定</h2>
+      <p>优先显示当前绑定状态；只有在你主动新增账号时，才会进入扫码流程。</p>
+      <div class="row" style="margin-top:18px">
+        <button id="startBind" class="primary">开始绑定</button>
+        <button id="cancelBind" class="danger">取消本次绑定</button>
+        <button id="refreshBind" class="secondary">刷新状态</button>
+      </div>
+      <div class="mini" id="bindHint" style="margin-top:10px">二维码 5 分钟内有效，如暂时不扫，可直接取消本次绑定。</div>
+      <div class="qr-shell">
+        <img id="qrImage" class="qr" alt="二维码" style="display:none">
+        <div class="bind" id="bindStatus">
+          <strong>绑定状态</strong>
+          <div class="mini">加载中...</div>
+        </div>
+      </div>
+      <div class="accounts" id="accountPanel">
+        <strong>账号管理</strong>
+        <div class="row">
+          <button id="refreshAccounts" class="secondary">刷新账号</button>
+          <span id="accountMessage" class="mini">可删除失效账号，删除后会立即从当前进程卸载。</span>
+        </div>
+        <div id="accountList" class="account-list">
+          <div class="mini">加载中...</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:20px">
+      <h2>记忆功能</h2>
+      <p>按已绑定微信账号查看长期画像文档与最近 5 轮短期会话记忆。</p>
+      <div class="stack">
+        <div>
+          <label for="memoryUserId">微信 Bot ID</label>
+          <div class="row">
+            <input id="memoryUserId" placeholder="输入 bot_id 后查看记忆" style="flex:1 1 320px">
+            <button id="loadMemory" class="secondary">查询记忆</button>
+            <button id="clearShortTerm" class="danger">清空短期记忆</button>
+          </div>
+          <div id="memoryMessage" class="mini" style="margin-top:8px">先输入一个微信 Bot ID。</div>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:18px">
+        <div class="memory-box">
+          <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+            <strong>长期用户画像文档</strong>
+            <div class="row">
+              <button id="refreshMemory" class="secondary">刷新记忆</button>
+              <button id="editProfileDoc" class="primary">修改文档</button>
+              <button id="saveProfile" class="primary" style="display:none">保存文档</button>
+              <button id="cancelProfileEdit" class="secondary" style="display:none">取消</button>
+            </div>
+          </div>
+          <div class="mini" id="profileOverviewMeta" style="margin-bottom:12px">默认显示只读预览；点击“修改文档”后进入编辑态。</div>
+          <pre id="profileOverview" class="account-list" style="white-space:pre-wrap">暂无长期画像</pre>
+          <textarea id="profileContent" placeholder="# 长期用户画像" disabled style="display:none; margin-top:12px; height:55vh"></textarea>
+          <div class="mini" id="profileFormState" style="margin-top:12px">查看模式：当前展示长期画像 markdown 预览。</div>
+        </div>
+        <div class="memory-box">
+          <strong>短期会话记忆</strong>
+          <div class="mini" id="shortTermMeta" style="margin-bottom:12px">显示最近 5 轮 user / AI 对话，便于确认上下文是否已更新。</div>
+          <div id="shortTermList" class="account-list">
+            <div class="mini">暂无短期记忆</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:20px">
+      <h2>素材库</h2>
+      <p>文本素材直接存正文；图片、视频、文件素材改为本地导入，文件会托管到 weone 本地目录，并支持预览与后续 runtime 检索发送。</p>
+        <div class="stack">
+        <div class="row">
+          <input id="materialQuery" placeholder="输入关键词筛选素材" style="flex:1 1 260px">
+          <select id="materialKind" style="padding:14px 15px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2);font-size:14px;color:var(--text)">
+            <option value="">全部类型</option>
+            <option value="text">文本</option>
+            <option value="image">图片</option>
+            <option value="video">视频</option>
+            <option value="file">文件</option>
+          </select>
+          <button id="loadMaterials" class="secondary">查询素材</button>
+          <button id="refreshMaterials" class="secondary">刷新素材</button>
+          <button id="importMaterials" class="primary">导入素材</button>
+          <button id="newTextMaterial" class="secondary">新建文本</button>
+        </div>
+        <div id="materialsMessage" class="mini">先查询一次素材库，或点击“导入素材”。</div>
+        <input id="materialImportFiles" type="file" multiple style="display:none">
+        <div id="materialImportPanel" class="memory-box">
+          <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+            <strong>批量导入</strong>
+            <div class="row">
+              <button id="startMaterialImport" class="primary" disabled>开始导入</button>
+              <button id="clearMaterialImport" class="secondary">清空队列</button>
+            </div>
+          </div>
+          <div id="materialImportProgress" class="mini" style="margin-top:12px">还没有选择文件。</div>
+          <div id="materialImportCurrent" class="mini" style="margin-top:6px">当前文件：—</div>
+          <div id="materialImportResults" class="account-list" style="margin-top:12px">
+            <div class="mini">选择多个文件后，这里会显示 1/5 这样的导入进度和逐项结果。</div>
+          </div>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:18px">
+        <div class="memory-box">
+          <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+            <strong>素材列表</strong>
+            <div class="mini" id="materialsMeta">显示全部素材</div>
+          </div>
+          <div id="materialsList" class="account-list">
+            <div class="mini">暂无素材</div>
+          </div>
+        </div>
+        <div class="memory-box">
+          <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+            <strong>素材详情</strong>
+            <div class="row">
+              <button id="editMaterial" class="primary">修改素材</button>
+              <button id="saveMaterial" class="primary" style="display:none">保存素材</button>
+              <button id="cancelMaterialEdit" class="secondary" style="display:none">取消</button>
+              <button id="deleteMaterial" class="danger">删除素材</button>
+            </div>
+          </div>
+          <div id="materialPreview" class="account-list">
+            <div class="mini">请选择左侧素材，或点击“新建素材”。</div>
+          </div>
+          <div id="materialEditor" style="display:none; margin-top:12px" class="stack">
+            <div>
+              <label for="materialTitle">标题</label>
+              <input id="materialTitle" placeholder="例如：晚安安慰文案 / 早安海报 / 产品手册 PDF">
+            </div>
+            <div>
+              <label for="materialKindEditor">类型</label>
+              <select id="materialKindEditor" style="padding:14px 15px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2);font-size:14px;color:var(--text)">
+                <option value="text">文本</option>
+                <option value="image">图片</option>
+                <option value="video">视频</option>
+                <option value="file">文件</option>
+              </select>
+            </div>
+            <div id="materialContentField">
+              <label for="materialContent">正文</label>
+              <textarea id="materialContent" placeholder="文本素材直接填写正文"></textarea>
+            </div>
+            <div id="materialMediaField" style="display:none" class="stack">
+              <div>
+                <label for="materialFile">导入素材文件</label>
+                <input id="materialFile" type="file">
+                <div class="mini" style="margin-top:8px">图片、视频、文件素材会保存到 weone 本地托管目录。</div>
+              </div>
+              <div id="materialMediaMeta" class="mini">当前还没有导入文件。</div>
+              <div id="materialMediaPreview" class="account-list">
+                <div class="mini">导入后可在这里预览。</div>
+              </div>
+            </div>
+            <div>
+              <label for="materialTags">标签</label>
+              <input id="materialTags" placeholder="例如：早安, 安慰, 节日, 海报（用逗号分隔）">
+            </div>
+            <div>
+              <label for="materialDescription">用途说明</label>
+              <textarea id="materialDescription" placeholder="一句话说明适合什么场景使用"></textarea>
+            </div>
+            <label class="row" style="align-items:center; gap:8px">
+              <input id="materialEnabled" type="checkbox" checked style="width:auto">
+              <span>启用此素材</span>
+            </label>
+          </div>
+          <div id="materialFormState" class="mini" style="margin-top:12px">查看模式：当前展示素材详情。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:20px">
+      <h2>运行状态</h2>
+      <p>这里显示当前运行摘要，不再直接暴露整段 JSON。</p>
+      <div class="summary" id="runtimeSummary">
+        <strong>状态摘要</strong>
+        <div class="mini">加载中...</div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:20px">
+      <h2>日志</h2>
+      <p>显示最近日志，便于快速确认运行状态、AI 调用过程，以及记忆识别 / 写入动作。</p>
+      <div class="logs" id="logPanel">
+        <strong>最近日志</strong>
+        <div class="row" style="margin-bottom:12px">
+          <button id="refreshLogs" class="secondary">刷新日志</button>
+          <span id="logMeta" class="mini">加载中...</span>
+        </div>
+        <pre id="logOutput">加载中...</pre>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    async function fetchJSON(url, options){
+      const resp = await fetch(url, options)
+      const text = await resp.text()
+      let data = null
+      if(text){
+        try {
+          data = JSON.parse(text)
+        } catch {}
+      }
+      if(!resp.ok){
+        throw data || new Error(text || resp.statusText)
+      }
+      return data
+    }
+
+    function bindLabel(status){
+      if(status === 'bound') return '已绑定'
+      if(status === 'idle') return '尚未绑定'
+      if(status === 'wait') return '等待扫码'
+      if(status === 'scaned') return '已扫码，等待手机确认'
+      if(status === 'confirmed') return '绑定成功'
+      if(status === 'cancelled') return '已取消'
+      if(status === 'error') return '绑定失败'
+      return status || '未知状态'
+    }
+
+    function setConfigForm(data){
+      document.getElementById('baseUrl').value = data.base_url || ''
+      document.getElementById('apiKey').value = data.api_key || ''
+      document.getElementById('modelName').value = data.model_name || 'gpt-4o-mini'
+      document.getElementById('systemPrompt').value = data.system_prompt || ''
+      document.getElementById('identity').value = data.identity || ''
+      document.getElementById('tone').value = data.tone || ''
+      document.getElementById('style').value = data.style || ''
+    }
+
+    function getConfigBody(){
+      return {
+        enabled: true,
+        base_url: document.getElementById('baseUrl').value.trim(),
+        api_key: document.getElementById('apiKey').value.trim(),
+        model_name: document.getElementById('modelName').value.trim(),
+        system_prompt: document.getElementById('systemPrompt').value.trim(),
+        identity: document.getElementById('identity').value.trim(),
+        tone: document.getElementById('tone').value.trim(),
+        style: document.getElementById('style').value.trim()
+      }
+    }
+
+    async function loadConfig(){
+      const data = await fetchJSON('/api/runtime/config')
+      setConfigForm(data)
+    }
+
+    async function saveConfig(){
+      const data = await fetchJSON('/api/runtime/config', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(getConfigBody())
+      })
+      setConfigForm(data)
+      document.getElementById('configMessage').textContent = '保存成功，新配置已立即应用到后续对话'
+      await loadStatus()
+    }
+
+    async function testConnection(){
+      const data = await fetchJSON('/api/runtime/test', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(getConfigBody())
+      })
+      renderTestResult(data)
+      await loadStatus()
+    }
+
+    function renderTestResult(data){
+      const el = document.getElementById('testResult')
+      const cls = data.ok ? 'ok' : 'bad'
+      const endpoint = data.endpoint ? `<div>实际请求</div><div>${escapeHtml(data.endpoint)}</div>` : ''
+      el.innerHTML = `
+        <strong>连接结果</strong>
+        <div class="kv">
+          <div>状态</div><div class="${cls}">${data.ok ? '成功' : '失败'}</div>
+          <div>延迟</div><div>${data.latency_ms} ms</div>
+          ${endpoint}
+          <div>信息</div><div>${escapeHtml(data.message || '')}</div>
+          <div>时间</div><div>${formatTime(data.tested_at)}</div>
+        </div>
+      `
+    }
+
+    async function loadStatus(){
+      const data = await fetchJSON('/api/runtime/status')
+      const enabled = data.runtime_enabled ? '已启用' : '未启用'
+      document.getElementById('heroStatus').textContent = `控制台 ${data.api_addr || '127.0.0.1:18011'}`
+      const last = data.last_test
+      const engine = data.default_agent || 'companion'
+      const runtimeMode = '纯内置 Runtime'
+      const consoleUrl = data.console_url || `http://${data.api_addr || '127.0.0.1:18011'}`
+      const hasSystemPrompt = data.has_system_prompt ? '已配置' : '未配置'
+      document.getElementById('runtimeSummary').innerHTML = `
+        <strong>状态摘要</strong>
+        <div class="kv">
+          <div>控制台地址</div><div>${escapeHtml(consoleUrl)}</div>
+          <div>Runtime</div><div>${enabled}</div>
+          <div>当前引擎</div><div>${escapeHtml(engine)}</div>
+          <div>引擎类型</div><div>${escapeHtml(runtimeMode)}</div>
+          <div>Runtime 名称</div><div>${escapeHtml(data.runtime_name || 'companion')}</div>
+          <div>Base URL</div><div>${escapeHtml(data.base_url || '未配置')}</div>
+          <div>Model Name</div><div>${escapeHtml(data.model_name || '未配置')}</div>
+          <div>当前身份</div><div>${escapeHtml(data.persona_identity || '未配置')}</div>
+          <div>当前语气</div><div>${escapeHtml(data.persona_tone || '未配置')}</div>
+          <div>当前风格</div><div>${escapeHtml(data.persona_style || '未配置')}</div>
+          <div>系统提示词</div><div>${escapeHtml(hasSystemPrompt)}</div>
+          <div>已保存账号</div><div>${data.saved_account_count ?? 0}</div>
+          <div>当前运行中已加载</div><div>${data.loaded_account_count ?? 0}</div>
+          <div>保存主账号</div><div>${escapeHtml(data.saved_primary_bot_id || '未配置')}</div>
+          <div>运行主账号</div><div>${escapeHtml(data.loaded_primary_bot_id || '未配置')}</div>
+          <div>最近测试</div><div>${last ? `${last.ok ? '成功' : '失败'} / ${last.latency_ms} ms` : '暂无记录'}</div>
+        </div>
+      `
+    }
+
+    async function startBind(){
+      const data = await fetchJSON('/api/wechat/bind/start', {method:'POST'})
+      renderBind(data)
+    }
+
+    async function loadBindStatus(){
+      const data = await fetchJSON('/api/wechat/bind/status')
+      renderBind(data)
+    }
+
+    async function cancelBind(){
+      const data = await fetchJSON('/api/wechat/bind/cancel', {method:'POST'})
+      renderBind(data)
+      await Promise.all([loadAccounts(), loadStatus()])
+    }
+
+    async function loadAccounts(){
+      const data = await fetchJSON('/api/wechat/accounts')
+      renderAccounts(data.accounts || [])
+    }
+
+    async function removeAccount(botID){
+      const data = await fetchJSON('/api/wechat/accounts/remove', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({bot_id: botID})
+      })
+      document.getElementById('accountMessage').textContent = data.message || '账号已卸载并删除'
+      await Promise.all([loadAccounts(), loadBindStatus(), loadStatus()])
+    }
+
+    async function loadLogs(){
+      const data = await fetchJSON('/api/logs?tail=200')
+      const lines = Array.isArray(data.lines) ? data.lines : []
+      document.getElementById('logOutput').textContent = lines.length ? lines.join('\n') : '暂无日志'
+      const parts = []
+      if(data.path) parts.push(data.path)
+      if(data.updated_at) parts.push(`更新于 ${formatTime(data.updated_at)}`)
+      if(data.truncated) parts.push('仅显示最近 200 行')
+      document.getElementById('logMeta').textContent = parts.join(' · ') || '暂无日志文件'
+    }
+
+    function renderBind(data){
+      const img = document.getElementById('qrImage')
+      const startButton = document.getElementById('startBind')
+      const cancelButton = document.getElementById('cancelBind')
+      const bindHint = document.getElementById('bindHint')
+      const status = data.status || 'idle'
+      const hasAccounts = !!data.has_accounts
+      const accountCount = Number(data.account_count || 0)
+      const inProgress = !!data.in_progress
+      startButton.textContent = hasAccounts ? '新增账号' : '开始绑定'
+      startButton.disabled = inProgress
+      cancelButton.disabled = !inProgress
+      if(data.qrcode_png && (inProgress || status === 'wait' || status === 'scaned')){
+        img.src = data.qrcode_png
+        img.style.display = 'block'
+      } else {
+        img.style.display = 'none'
+        img.removeAttribute('src')
+      }
+      if(data.message){
+        bindHint.textContent = data.message
+      } else {
+        bindHint.textContent = '二维码 5 分钟内有效，如暂时不扫，可直接取消本次绑定。'
+      }
+      const details = []
+      if(data.primary_bot_id) details.push(`<div>当前主账号：${escapeHtml(data.primary_bot_id)}</div>`)
+      if(accountCount) details.push(`<div>已保存账号数：${accountCount}</div>`)
+      if(data.bot_id && data.bot_id !== data.primary_bot_id) details.push(`<div>最新绑定账号：${escapeHtml(data.bot_id)}</div>`)
+      if(data.last_error) details.push(`<div class="bad">${escapeHtml(data.last_error)}</div>`)
+      if(data.message) details.push(`<div>${escapeHtml(data.message)}</div>`)
+      if(!details.length){
+        details.push(`<div>${hasAccounts ? '当前已有绑定账号，如需新增可点击“新增账号”。' : '当前还没有绑定账号。'}</div>`)
+      }
+      document.getElementById('bindStatus').innerHTML = `
+        <strong>绑定状态</strong>
+        <div class="status-pill">${bindLabel(status)}</div>
+        <div class="mini" style="margin-top:10px">${details.join('')}</div>
+      `
+    }
+
+    function renderAccounts(accounts){
+      const host = document.getElementById('accountList')
+      if(!accounts.length){
+        host.innerHTML = '<div class="mini">当前没有已保存账号。</div>'
+        return
+      }
+      host.innerHTML = accounts.map(account => {
+        const status = account.needs_relogin ? '<span class="bad">需要重新登录</span>' : '<span class="ok">正常</span>'
+        const syncText = account.has_sync_state ? '有同步状态' : '无同步状态'
+        const loadedText = account.loaded ? '当前运行中已加载' : '当前运行中未加载'
+        const updated = account.updated_at ? formatTime(account.updated_at) : '—'
+        return `
+          <div class="account-item">
+            <div class="meta">
+              <div><strong>${escapeHtml(account.bot_id || '未知账号')}</strong></div>
+              <div class="mini">状态：${status}</div>
+              <div class="mini">${escapeHtml(syncText)} · ${escapeHtml(loadedText)}</div>
+              <div class="mini">最近状态时间：${escapeHtml(updated)}</div>
+            </div>
+            <div class="row">
+              <button class="danger" data-remove-account="${escapeHtml(account.bot_id || '')}">删除账号</button>
+            </div>
+          </div>
+        `
+      }).join('')
+    }
+
+    function formatTime(value){
+      if(!value) return '—'
+      const d = new Date(value)
+      if(Number.isNaN(d.getTime())) return value
+      return d.toLocaleString()
+    }
+
+    function memoryUserId(){
+      return document.getElementById('memoryUserId')?.value.trim() || ''
+    }
+
+    let profileDocOriginal = ''
+    let profileDocDraft = ''
+    let profileDocEditing = false
+    let lastMemoryBotID = ''
+    let materials = []
+    let selectedMaterialID = ''
+    let materialDraft = null
+    let materialEditing = false
+    let materialCreating = false
+    let lastMaterialQuery = ''
+    let lastMaterialKind = ''
+    let materialImportQueue = []
+    let materialImportRunning = false
+
+    function setProfileEditorMode(editing){
+      profileDocEditing = !!editing
+      const content = document.getElementById('profileContent')
+      const saveButton = document.getElementById('saveProfile')
+      const cancelButton = document.getElementById('cancelProfileEdit')
+      const editButton = document.getElementById('editProfileDoc')
+      const preview = document.getElementById('profileOverview')
+      if(profileDocEditing){
+        preview.style.display = 'none'
+        content.style.display = 'block'
+        content.disabled = false
+        content.value = profileDocDraft || profileDocOriginal || ''
+        saveButton.style.display = 'inline-flex'
+        cancelButton.style.display = 'inline-flex'
+        editButton.style.display = 'none'
+        document.getElementById('profileFormState').textContent = '编辑模式：直接在这里修改文档，完成后点击保存。'
+        return
+      }
+      profileDocDraft = profileDocOriginal || ''
+      preview.style.display = 'block'
+      content.style.display = 'none'
+      content.disabled = true
+      content.value = profileDocOriginal || ''
+      saveButton.style.display = 'none'
+      cancelButton.style.display = 'none'
+      editButton.style.display = 'inline-flex'
+      editButton.disabled = !lastMemoryBotID
+      document.getElementById('profileFormState').textContent = '查看模式：当前展示长期画像 markdown 预览。'
+    }
+
+    function emptyMaterial(){
+      return {
+        id: '',
+        kind: 'text',
+        title: '',
+        content: '',
+        media_path: '',
+        original_name: '',
+        mime_type: '',
+        file_size: 0,
+        tags: [],
+        description: '',
+        enabled: true,
+        created_at: '',
+        updated_at: ''
+      }
+    }
+
+    function currentMaterialQuery(){
+      return document.getElementById('materialQuery')?.value.trim() || ''
+    }
+
+    function currentMaterialKind(){
+      return document.getElementById('materialKind')?.value.trim() || ''
+    }
+
+    function getMaterialByID(id){
+      return materials.find(item => item.id === id) || null
+    }
+
+    function splitTags(value){
+      return String(value || '')
+        .split(/[，,]/)
+        .map(part => part.trim())
+        .filter(Boolean)
+    }
+
+    function materialKindLabel(kind){
+      if(kind === 'text') return '文本'
+      if(kind === 'image') return '图片'
+      if(kind === 'video') return '视频'
+      if(kind === 'file') return '文件'
+      return kind || '未知'
+    }
+
+    function materialPreviewURL(item){
+      if(!item || !item.id || item.kind === 'text' || !item.media_path) return ''
+      return `/api/materials/media?id=${encodeURIComponent(item.id)}`
+    }
+
+    function formatBytes(bytes){
+      const value = Number(bytes || 0)
+      if(!value) return '—'
+      if(value < 1024) return `${value} B`
+      if(value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
+      if(value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`
+      return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`
+    }
+
+    function renderMaterialMediaMeta(item){
+      const host = document.getElementById('materialMediaMeta')
+      const previewHost = document.getElementById('materialMediaPreview')
+      if(!item || item.kind === 'text' || !item.media_path){
+        host.textContent = '当前还没有导入文件。'
+        previewHost.innerHTML = '<div class="mini">导入后可在这里预览。</div>'
+        return
+      }
+      const previewURL = materialPreviewURL(item)
+      const metaParts = [
+        item.original_name || '未命名文件',
+        item.mime_type || '未知类型',
+        formatBytes(item.file_size)
+      ].filter(Boolean)
+      host.textContent = `当前文件：${metaParts.join(' · ')}`
+      if(item.kind === 'image'){
+        previewHost.innerHTML = `<img src="${escapeHtml(previewURL)}" alt="${escapeHtml(item.title || item.original_name || 'image')}" style="max-width:100%; border-radius:14px; border:1px solid var(--line)">`
+        return
+      }
+      if(item.kind === 'video'){
+        previewHost.innerHTML = `<video controls src="${escapeHtml(previewURL)}" style="width:100%; border-radius:14px; border:1px solid var(--line); background:#000"></video>`
+        return
+      }
+      previewHost.innerHTML = `
+        <div class="memory-item">
+          <div><strong>${escapeHtml(item.original_name || item.title || '文件素材')}</strong></div>
+          <div class="mini">${escapeHtml(item.mime_type || '未知类型')} · ${escapeHtml(formatBytes(item.file_size))}</div>
+          <div class="row" style="margin-top:8px">
+            <a class="secondary" href="${escapeHtml(previewURL)}" target="_blank" rel="noopener" style="text-decoration:none; display:inline-flex; align-items:center; padding:13px 18px; border-radius:14px">预览 / 下载</a>
+          </div>
+        </div>
+      `
+    }
+
+    function syncMaterialEditorVisibility(kind){
+      const textMode = (kind || 'text') === 'text'
+      document.getElementById('materialContentField').style.display = textMode ? 'block' : 'none'
+      document.getElementById('materialMediaField').style.display = textMode ? 'none' : 'grid'
+      renderMaterialMediaMeta(textMode ? null : materialDraft)
+    }
+
+    function fillMaterialForm(item){
+      const current = item || emptyMaterial()
+      document.getElementById('materialTitle').value = current.title || ''
+      document.getElementById('materialKindEditor').value = current.kind || 'text'
+      document.getElementById('materialContent').value = current.content || ''
+      document.getElementById('materialFile').value = ''
+      document.getElementById('materialTags').value = Array.isArray(current.tags) ? current.tags.join(', ') : ''
+      document.getElementById('materialDescription').value = current.description || ''
+      document.getElementById('materialEnabled').checked = current.enabled !== false
+      materialDraft = {...current}
+      syncMaterialEditorVisibility(current.kind || 'text')
+    }
+
+    function renderMaterialImportQueue(){
+      const host = document.getElementById('materialImportResults')
+      const progress = document.getElementById('materialImportProgress')
+      const current = document.getElementById('materialImportCurrent')
+      const startButton = document.getElementById('startMaterialImport')
+      const clearButton = document.getElementById('clearMaterialImport')
+      const total = materialImportQueue.length
+      const done = materialImportQueue.filter(item => item.status === 'done').length
+      const failed = materialImportQueue.filter(item => item.status === 'error').length
+      const active = materialImportQueue.find(item => item.status === 'uploading' || item.status === 'analyzing')
+      startButton.disabled = materialImportRunning || total === 0
+      clearButton.disabled = materialImportRunning || total === 0
+      if(!total){
+        progress.textContent = '还没有选择文件。'
+        current.textContent = '当前文件：—'
+        host.innerHTML = '<div class="mini">选择多个文件后，这里会显示 1/5 这样的导入进度和逐项结果。</div>'
+        return
+      }
+      progress.textContent = `进度：${done + failed}/${total} · 成功 ${done} · 失败 ${failed}`
+      current.textContent = `当前文件：${active ? `${active.index}/${total} · ${active.name}` : '等待开始或已完成'}`
+      host.innerHTML = materialImportQueue.map(item => {
+        const label = item.status === 'done' ? '已完成' : item.status === 'error' ? '失败' : item.status === 'uploading' ? '上传中 / AI 分析中' : '待导入'
+        const extra = item.status === 'done'
+          ? `<div class="mini">已生成素材：${escapeHtml(item.item?.title || item.name)}</div>`
+          : item.status === 'error'
+            ? `<div class="mini bad">${escapeHtml(item.error || '导入失败')}</div>`
+            : '<div class="mini">等待处理</div>'
+        return `
+          <div class="memory-item">
+            <div><strong>${item.index}/${total} · ${escapeHtml(item.name)}</strong></div>
+            <div class="mini">状态：${escapeHtml(label)}</div>
+            ${extra}
+          </div>
+        `
+      }).join('')
+    }
+
+    function resetMaterialImportQueue(){
+      if(materialImportRunning) return
+      materialImportQueue = []
+      document.getElementById('materialImportFiles').value = ''
+      renderMaterialImportQueue()
+    }
+
+    function queueMaterialImportFiles(fileList){
+      materialImportQueue = Array.from(fileList || []).map((file, idx) => ({
+        file,
+        name: file.name,
+        index: idx + 1,
+        status: 'pending',
+        error: '',
+        item: null
+      }))
+      renderMaterialImportQueue()
+    }
+
+    async function importSingleMaterial(queueItem, total){
+      const form = new FormData()
+      form.append('files', queueItem.file)
+      form.set('index', '0')
+      form.set('enabled', 'true')
+      form.set('analyze_ai', 'true')
+      const resp = await fetch('/api/materials/import', {method:'POST', body: form})
+      const text = await resp.text()
+      let data = null
+      if(text){
+        try { data = JSON.parse(text) } catch {}
+      }
+      if(!resp.ok){
+        throw data || new Error(text || resp.statusText)
+      }
+      return data
+    }
+
+    async function startMaterialImport(){
+      if(materialImportRunning || !materialImportQueue.length){
+        return
+      }
+      materialImportRunning = true
+      renderMaterialImportQueue()
+      const importedIDs = []
+      try {
+        for(const queueItem of materialImportQueue){
+          if(queueItem.status === 'done') continue
+          queueItem.status = 'uploading'
+          queueItem.error = ''
+          renderMaterialImportQueue()
+          try {
+            const data = await importSingleMaterial(queueItem, materialImportQueue.length)
+            queueItem.status = 'done'
+            queueItem.item = data?.item || null
+            if(queueItem.item?.id){
+              importedIDs.push(queueItem.item.id)
+            }
+          } catch (err) {
+            queueItem.status = 'error'
+            queueItem.error = err?.error || err?.message || '导入失败'
+          }
+          renderMaterialImportQueue()
+        }
+      } finally {
+        materialImportRunning = false
+        renderMaterialImportQueue()
+      }
+      const successCount = materialImportQueue.filter(item => item.status === 'done').length
+      const totalCount = materialImportQueue.length
+      await loadMaterials()
+      if(importedIDs.length){
+        selectedMaterialID = importedIDs[0]
+        await loadMaterialItem(selectedMaterialID)
+      }
+      resetMaterialImportQueue()
+      document.getElementById('materialsMessage').textContent = `批量导入完成：成功 ${successCount} / ${totalCount}`
+    }
+
+    function readMaterialForm(){
+      return {
+        id: materialDraft?.id || '',
+        kind: document.getElementById('materialKindEditor').value,
+        title: document.getElementById('materialTitle').value.trim(),
+        content: document.getElementById('materialContent').value.trim(),
+        media_path: materialDraft?.media_path || '',
+        original_name: materialDraft?.original_name || '',
+        mime_type: materialDraft?.mime_type || '',
+        file_size: Number(materialDraft?.file_size || 0),
+        tags: splitTags(document.getElementById('materialTags').value),
+        description: document.getElementById('materialDescription').value.trim(),
+        enabled: document.getElementById('materialEnabled').checked,
+        created_at: materialDraft?.created_at || '',
+        updated_at: materialDraft?.updated_at || ''
+      }
+    }
+
+    function renderMaterialPreview(item){
+      const host = document.getElementById('materialPreview')
+      if(!item){
+        host.innerHTML = '<div class="mini">请选择左侧素材，或点击“导入素材”。</div>'
+        return
+      }
+      const tags = Array.isArray(item.tags) && item.tags.length ? item.tags.map(tag => `<span class="status-pill" style="font-size:12px; padding:6px 10px">${escapeHtml(tag)}</span>`).join(' ') : '<span class="mini">暂无标签</span>'
+      const previewURL = materialPreviewURL(item)
+      let body = `<pre style="white-space:pre-wrap; margin:0">${escapeHtml(item.content || '暂无正文')}</pre>`
+      if(item.kind !== 'text'){
+        const fileInfo = [item.original_name || '未导入文件', item.mime_type || '未知类型', formatBytes(item.file_size)].filter(Boolean).join(' · ')
+        if(item.kind === 'image' && previewURL){
+          body = `<img src="${escapeHtml(previewURL)}" alt="${escapeHtml(item.title || item.original_name || 'image')}" style="max-width:100%; border-radius:14px; border:1px solid var(--line)"><div class="mini" style="margin-top:8px">${escapeHtml(fileInfo)}</div>`
+        } else if(item.kind === 'video' && previewURL){
+          body = `<video controls src="${escapeHtml(previewURL)}" style="width:100%; border-radius:14px; border:1px solid var(--line); background:#000"></video><div class="mini" style="margin-top:8px">${escapeHtml(fileInfo)}</div>`
+        } else {
+          body = `<div><strong>托管文件</strong></div><div class="mini" style="word-break:break-all">${escapeHtml(fileInfo || '暂无文件')}</div>${previewURL ? `<div class="row" style="margin-top:8px"><a class="secondary" href="${escapeHtml(previewURL)}" target="_blank" rel="noopener" style="text-decoration:none; display:inline-flex; align-items:center; padding:13px 18px; border-radius:14px">预览 / 下载</a></div>` : ''}`
+        }
+      }
+      host.innerHTML = `
+        <div class="memory-item ${selectedMaterialID === item.id ? 'selected' : ''}">
+          <div><strong>${escapeHtml(item.title || '未命名素材')}</strong></div>
+          <div class="mini">类型：${escapeHtml(materialKindLabel(item.kind))} · ${item.enabled === false ? '已禁用' : '已启用'}</div>
+          <div class="mini">更新时间：${escapeHtml(formatTime(item.updated_at))}</div>
+          <div style="margin-top:8px">${body}</div>
+          <div style="margin-top:8px"><strong>用途说明</strong></div>
+          <div class="mini">${escapeHtml(item.description || '暂无说明')}</div>
+          <div style="margin-top:8px"><strong>标签</strong></div>
+          <div class="row" style="margin-top:6px">${tags}</div>
+        </div>
+      `
+    }
+
+    function setMaterialEditorMode(editing){
+      materialEditing = !!editing
+      const preview = document.getElementById('materialPreview')
+      const editor = document.getElementById('materialEditor')
+      const editButton = document.getElementById('editMaterial')
+      const saveButton = document.getElementById('saveMaterial')
+      const cancelButton = document.getElementById('cancelMaterialEdit')
+      const deleteButton = document.getElementById('deleteMaterial')
+      if(materialEditing){
+        preview.style.display = 'none'
+        editor.style.display = 'grid'
+        fillMaterialForm(materialDraft || emptyMaterial())
+        editButton.style.display = 'none'
+        saveButton.style.display = 'inline-flex'
+        cancelButton.style.display = 'inline-flex'
+        deleteButton.style.display = materialCreating ? 'none' : 'inline-flex'
+        document.getElementById('materialFormState').textContent = materialCreating ? '新建模式：填写素材信息后保存。' : '编辑模式：可修改素材内容、标签和用途说明。'
+        return
+      }
+      preview.style.display = 'block'
+      editor.style.display = 'none'
+      editButton.style.display = 'inline-flex'
+      saveButton.style.display = 'none'
+      cancelButton.style.display = 'none'
+      deleteButton.style.display = selectedMaterialID ? 'inline-flex' : 'none'
+      editButton.disabled = !selectedMaterialID
+      deleteButton.disabled = !selectedMaterialID
+      materialCreating = false
+      renderMaterialPreview(getMaterialByID(selectedMaterialID))
+      document.getElementById('materialFormState').textContent = '查看模式：当前展示素材详情。'
+    }
+
+    async function loadMemory(){
+      const botID = memoryUserId()
+      if(!botID){
+        document.getElementById('memoryMessage').textContent = '请先输入微信 Bot ID'
+        renderProfileOverview('')
+        renderShortTerm([])
+        profileDocOriginal = ''
+        profileDocDraft = ''
+        lastMemoryBotID = ''
+        setProfileEditorMode(false)
+        return
+      }
+      const data = await fetchJSON(`/api/memory/overview?bot_id=${encodeURIComponent(botID)}`)
+      lastMemoryBotID = botID
+      profileDocOriginal = data.profile_document?.markdown || ''
+      profileDocDraft = profileDocOriginal
+      document.getElementById('memoryMessage').textContent = `已刷新 ${botID} 的记忆 · ${new Date().toLocaleTimeString()}`
+      renderProfileOverview(profileDocOriginal)
+      renderShortTerm(data.short_term || [])
+      setProfileEditorMode(false)
+    }
+
+    async function saveProfile(){
+      const botID = memoryUserId()
+      if(!botID){
+        throw new Error('请先输入微信 Bot ID')
+      }
+      const markdown = document.getElementById('profileContent').value
+      const data = await fetchJSON('/api/memory/profile', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          bot_id: botID,
+          markdown,
+          source: 'manual-edit'
+        })
+      })
+      profileDocOriginal = data.profile_document?.markdown || markdown
+      profileDocDraft = profileDocOriginal
+      document.getElementById('memoryMessage').textContent = '长期画像文档已保存'
+      renderProfileOverview(profileDocOriginal)
+      setProfileEditorMode(false)
+      return data
+    }
+
+    async function clearShortTerm(){
+      const botID = memoryUserId()
+      if(!botID){
+        throw new Error('请先输入微信 Bot ID')
+      }
+      await fetchJSON(`/api/memory/short-term/clear?bot_id=${encodeURIComponent(botID)}`, {method:'POST'})
+      document.getElementById('memoryMessage').textContent = '短期记忆已清空'
+      await loadMemory()
+    }
+
+    async function loadMaterials(){
+      const query = currentMaterialQuery()
+      const kind = currentMaterialKind()
+      const params = new URLSearchParams()
+      if(query) params.set('query', query)
+      if(kind) params.set('kind', kind)
+      const url = params.toString() ? `/api/materials?${params}` : '/api/materials'
+      const data = await fetchJSON(url)
+      materials = Array.isArray(data.items) ? data.items : []
+      lastMaterialQuery = query
+      lastMaterialKind = kind
+      if(selectedMaterialID && !getMaterialByID(selectedMaterialID)){
+        selectedMaterialID = materials[0]?.id || ''
+      }
+      if(!selectedMaterialID && materials.length){
+        selectedMaterialID = materials[0].id
+      }
+      renderMaterialsList(materials)
+      renderMaterialPreview(getMaterialByID(selectedMaterialID))
+      setMaterialEditorMode(false)
+      document.getElementById('materialsMessage').textContent = `已加载 ${materials.length} 条素材 · ${new Date().toLocaleTimeString()}`
+    }
+
+    async function loadMaterialItem(id){
+      if(!id){
+        selectedMaterialID = ''
+        renderMaterialPreview(null)
+        setMaterialEditorMode(false)
+        return
+      }
+      const data = await fetchJSON(`/api/materials/item?id=${encodeURIComponent(id)}`)
+      const item = data.item || null
+      if(!item){
+        throw new Error('素材不存在')
+      }
+      selectedMaterialID = item.id
+      materials = materials.map(existing => existing.id === item.id ? item : existing)
+      if(!materials.some(existing => existing.id === item.id)){
+        materials.unshift(item)
+      }
+      renderMaterialsList(materials)
+      renderMaterialPreview(item)
+      setMaterialEditorMode(false)
+      document.getElementById('materialsMessage').textContent = `已选中素材：${item.title || '未命名素材'}`
+    }
+
+    async function uploadMaterialFile(){
+      const kind = document.getElementById('materialKindEditor').value
+      if(kind === 'text'){
+        return materialDraft || emptyMaterial()
+      }
+      const fileInput = document.getElementById('materialFile')
+      const file = fileInput.files?.[0]
+      if(!file){
+        return materialDraft || emptyMaterial()
+      }
+      const form = new FormData()
+      if(materialDraft?.id) form.set('id', materialDraft.id)
+      form.set('kind', kind)
+      form.set('title', document.getElementById('materialTitle').value.trim())
+      form.set('tags', document.getElementById('materialTags').value.trim())
+      form.set('description', document.getElementById('materialDescription').value.trim())
+      form.set('enabled', document.getElementById('materialEnabled').checked ? 'true' : 'false')
+      form.set('file', file)
+      const resp = await fetch('/api/materials/upload', {method:'POST', body: form})
+      const text = await resp.text()
+      let data = null
+      if(text){
+        try { data = JSON.parse(text) } catch {}
+      }
+      if(!resp.ok){
+        throw data || new Error(text || resp.statusText)
+      }
+      const item = data?.item
+      if(!item){
+        throw new Error('上传后未返回素材')
+      }
+      materialDraft = {...item}
+      fileInput.value = ''
+      renderMaterialMediaMeta(materialDraft)
+      return item
+    }
+
+    async function saveMaterial(){
+      let uploaded = null
+      if(document.getElementById('materialKindEditor').value !== 'text'){
+        uploaded = await uploadMaterialFile()
+      }
+      const payload = readMaterialForm()
+      if(uploaded){
+        payload.id = uploaded.id || payload.id
+        payload.media_path = uploaded.media_path || payload.media_path
+        payload.original_name = uploaded.original_name || payload.original_name
+        payload.mime_type = uploaded.mime_type || payload.mime_type
+        payload.file_size = uploaded.file_size || payload.file_size
+      }
+      const data = await fetchJSON('/api/materials/item', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      })
+      const item = data.item
+      if(!item){
+        throw new Error('保存后未返回素材')
+      }
+      materialDraft = item
+      materialCreating = false
+      selectedMaterialID = item.id
+      await loadMaterials()
+      renderMaterialPreview(getMaterialByID(selectedMaterialID))
+      document.getElementById('materialsMessage').textContent = '素材已保存'
+      return item
+    }
+
+    async function deleteMaterial(){
+      if(!selectedMaterialID){
+        throw new Error('请先选择一个素材')
+      }
+      await fetchJSON('/api/materials/delete', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id: selectedMaterialID})
+      })
+      const deletedID = selectedMaterialID
+      materials = materials.filter(item => item.id !== deletedID)
+      selectedMaterialID = materials[0]?.id || ''
+      materialDraft = getMaterialByID(selectedMaterialID) || emptyMaterial()
+      renderMaterialsList(materials)
+      renderMaterialPreview(getMaterialByID(selectedMaterialID))
+      setMaterialEditorMode(false)
+      document.getElementById('materialsMessage').textContent = '素材已删除'
+    }
+
+    function renderMaterialsList(items){
+      const host = document.getElementById('materialsList')
+      const meta = document.getElementById('materialsMeta')
+      const scope = [lastMaterialQuery ? `关键词：${lastMaterialQuery}` : '', lastMaterialKind ? `类型：${materialKindLabel(lastMaterialKind)}` : '全部类型'].filter(Boolean).join(' · ')
+      meta.textContent = scope || '显示全部素材'
+      if(!items.length){
+        host.innerHTML = '<div class="mini">暂无素材</div>'
+        return
+      }
+      host.innerHTML = items.map(item => {
+        const selected = item.id === selectedMaterialID
+        const tags = Array.isArray(item.tags) && item.tags.length ? item.tags.map(tag => `<span class="mini">#${escapeHtml(tag)}</span>`).join(' ') : '<span class="mini">无标签</span>'
+        const summary = item.kind === 'text'
+          ? escapeHtml((item.content || '暂无正文').slice(0, 80))
+          : escapeHtml([item.original_name || '未导入文件', item.mime_type || '', formatBytes(item.file_size)].filter(Boolean).join(' · '))
+        return `
+          <button type="button" class="account-item ${selected ? 'selected' : ''}" data-material-id="${escapeHtml(item.id)}" style="text-align:left; background:${selected ? '#eef3ff' : '#fff'}; cursor:pointer">
+            <div><strong>${escapeHtml(item.title || '未命名素材')}</strong></div>
+            <div class="mini">${escapeHtml(materialKindLabel(item.kind))} · ${item.enabled === false ? '已禁用' : '已启用'} · 更新于 ${escapeHtml(formatTime(item.updated_at))}</div>
+            <div class="mini">${summary}</div>
+            <div class="row" style="margin-top:6px">${tags}</div>
+          </button>
+        `
+      }).join('')
+    }
+
+    function renderProfileOverview(markdown){
+      const host = document.getElementById('profileOverview')
+      const meta = document.getElementById('profileOverviewMeta')
+      const text = (markdown || '').trim()
+      if(!text){
+        host.textContent = '暂无长期画像'
+        meta.textContent = '当前 bot 还没有长期画像文档。'
+        return
+      }
+      host.textContent = text
+      const lines = text.split('\n').length
+      meta.textContent = `当前文档 ${lines} 行 · bot ${escapeHtml(lastMemoryBotID || memoryUserId() || '')}`
+    }
+
+    function renderShortTerm(entries){
+      const host = document.getElementById('shortTermList')
+      const meta = document.getElementById('shortTermMeta')
+      if(!entries.length){
+        meta.textContent = '显示最近 5 轮 user / AI 对话，便于确认上下文是否已更新。'
+        host.innerHTML = '<div class="mini">暂无短期记忆</div>'
+        return
+      }
+      const ordered = [...entries].reverse()
+      meta.textContent = `当前展示最近 ${ordered.length} 轮对话 · Bot ${escapeHtml(lastMemoryBotID || memoryUserId() || '')}`
+      host.innerHTML = ordered.map(entry => `
+        <div class="memory-item">
+          <div class="mini">${escapeHtml(formatTime(entry.updated_at))}${entry.user_id ? ` · user ${escapeHtml(entry.user_id)}` : ''}</div>
+          <div style="margin-top:8px"><strong>user：</strong>${escapeHtml(entry.user_message || '')}</div>
+          <div style="margin-top:8px"><strong>AI：</strong>${escapeHtml(entry.assistant_reply || '')}</div>
+        </div>
+      `).join('')
+    }
+
+    function escapeHtml(text){
+      return String(text)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;')
+    }
+
+    document.getElementById('saveConfig').addEventListener('click', () => saveConfig().catch(err => {
+      document.getElementById('configMessage').textContent = '保存失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('testConnection').addEventListener('click', () => testConnection().catch(err => {
+      if(err && typeof err === 'object' && 'ok' in err){
+        renderTestResult(err)
+        return
+      }
+      renderTestResult({ok:false, latency_ms:0, message:err?.message || '请求失败', tested_at:new Date().toISOString()})
+    }))
+    document.getElementById('startBind').addEventListener('click', () => startBind().catch(err => {
+      document.getElementById('bindStatus').innerHTML = `<strong>绑定状态</strong><div class="mini bad">生成二维码失败: ${escapeHtml(err.message)}</div>`
+    }))
+    document.getElementById('cancelBind').addEventListener('click', () => cancelBind().catch(err => {
+      document.getElementById('bindStatus').innerHTML = `<strong>绑定状态</strong><div class="mini bad">取消绑定失败: ${escapeHtml(err.message)}</div>`
+    }))
+    document.getElementById('refreshBind').addEventListener('click', () => loadBindStatus().catch(err => {
+      document.getElementById('bindStatus').innerHTML = `<strong>绑定状态</strong><div class="mini bad">读取状态失败: ${escapeHtml(err.message)}</div>`
+    }))
+    document.getElementById('refreshAccounts').addEventListener('click', () => loadAccounts().catch(err => {
+      document.getElementById('accountMessage').textContent = '读取账号失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('refreshLogs').addEventListener('click', () => loadLogs().catch(err => {
+      document.getElementById('logOutput').textContent = '读取日志失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('loadMemory').addEventListener('click', () => loadMemory().catch(err => {
+      document.getElementById('memoryMessage').textContent = '读取记忆失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('refreshMemory').addEventListener('click', () => loadMemory().catch(err => {
+      document.getElementById('memoryMessage').textContent = '刷新记忆失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('editProfileDoc').addEventListener('click', () => {
+      if(!lastMemoryBotID && !memoryUserId()){
+        document.getElementById('memoryMessage').textContent = '请先输入微信 Bot ID 并刷新记忆'
+        return
+      }
+      profileDocDraft = profileDocOriginal || document.getElementById('profileContent').value || ''
+      setProfileEditorMode(true)
+      document.getElementById('memoryMessage').textContent = '已进入文档编辑模式'
+    })
+    document.getElementById('clearShortTerm').addEventListener('click', () => clearShortTerm().catch(err => {
+      document.getElementById('memoryMessage').textContent = '清空短期记忆失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('saveProfile').addEventListener('click', () => saveProfile().catch(err => {
+      document.getElementById('memoryMessage').textContent = '保存画像失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('cancelProfileEdit').addEventListener('click', () => {
+      profileDocDraft = profileDocOriginal || ''
+      setProfileEditorMode(false)
+    })
+    document.getElementById('profileContent').addEventListener('input', event => {
+      profileDocDraft = event.target.value
+    })
+    document.getElementById('loadMaterials').addEventListener('click', () => loadMaterials().catch(err => {
+      document.getElementById('materialsMessage').textContent = '读取素材失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('refreshMaterials').addEventListener('click', () => loadMaterials().catch(err => {
+      document.getElementById('materialsMessage').textContent = '刷新素材失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('importMaterials').addEventListener('click', () => {
+      document.getElementById('materialImportFiles').click()
+    })
+    document.getElementById('newTextMaterial').addEventListener('click', () => {
+      materialCreating = true
+      selectedMaterialID = ''
+      materialDraft = emptyMaterial()
+      setMaterialEditorMode(true)
+      document.getElementById('materialsMessage').textContent = '已进入新建文本素材模式'
+    })
+    document.getElementById('materialImportFiles').addEventListener('change', event => {
+      const files = event.target.files || []
+      queueMaterialImportFiles(files)
+      document.getElementById('materialsMessage').textContent = files.length ? `已选择 ${files.length} 个文件，点击“开始导入”即可批量处理` : '未选择文件'
+    })
+    document.getElementById('startMaterialImport').addEventListener('click', () => startMaterialImport().catch(err => {
+      materialImportRunning = false
+      renderMaterialImportQueue()
+      document.getElementById('materialsMessage').textContent = '批量导入失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('clearMaterialImport').addEventListener('click', () => {
+      resetMaterialImportQueue()
+      document.getElementById('materialsMessage').textContent = '导入队列已清空'
+    })
+    document.getElementById('editMaterial').addEventListener('click', () => {
+      const current = getMaterialByID(selectedMaterialID)
+      if(!current){
+        document.getElementById('materialsMessage').textContent = '请先选择一个素材'
+        return
+      }
+      materialCreating = false
+      materialDraft = JSON.parse(JSON.stringify(current))
+      setMaterialEditorMode(true)
+      document.getElementById('materialsMessage').textContent = '已进入素材编辑模式'
+    })
+    document.getElementById('saveMaterial').addEventListener('click', () => saveMaterial().catch(err => {
+      document.getElementById('materialsMessage').textContent = '保存素材失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('cancelMaterialEdit').addEventListener('click', () => {
+      materialDraft = getMaterialByID(selectedMaterialID) || emptyMaterial()
+      setMaterialEditorMode(false)
+    })
+    document.getElementById('deleteMaterial').addEventListener('click', () => deleteMaterial().catch(err => {
+      document.getElementById('materialsMessage').textContent = '删除素材失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('materialKindEditor').addEventListener('change', event => {
+      const nextKind = event.target.value
+      materialDraft = {...(materialDraft || emptyMaterial()), kind: nextKind}
+      syncMaterialEditorVisibility(nextKind)
+    })
+    document.getElementById('materialFile').addEventListener('change', event => {
+      const file = event.target.files?.[0]
+      if(!file) return
+      const kind = document.getElementById('materialKindEditor').value
+      const draft = {...(materialDraft || emptyMaterial())}
+      draft.kind = kind
+      draft.original_name = file.name
+      draft.mime_type = file.type || draft.mime_type || ''
+      draft.file_size = file.size || 0
+      materialDraft = draft
+      renderMaterialMediaMeta(draft)
+      document.getElementById('materialsMessage').textContent = `已选择文件：${file.name}`
+    })
+    document.getElementById('materialsList').addEventListener('click', event => {
+      const button = event.target.closest('[data-material-id]')
+      if(!button) return
+      const materialID = button.getAttribute('data-material-id') || ''
+      if(!materialID) return
+      loadMaterialItem(materialID).catch(err => {
+        document.getElementById('materialsMessage').textContent = '读取素材详情失败: ' + (err.message || '请求失败')
+      })
+    })
+    document.getElementById('accountList').addEventListener('click', event => {
+      const button = event.target.closest('[data-remove-account]')
+      if(!button) return
+      const botID = button.getAttribute('data-remove-account') || ''
+      if(!botID) return
+      removeAccount(botID).catch(err => {
+        document.getElementById('accountMessage').textContent = '删除账号失败: ' + (err.message || '请求失败')
+      })
+    })
+
+    loadConfig().catch(err => document.getElementById('configMessage').textContent = '加载配置失败: ' + err.message)
+    loadStatus().catch(err => document.getElementById('runtimeSummary').innerHTML = `<strong>状态摘要</strong><div class="mini bad">读取状态失败: ${escapeHtml(err.message)}</div>`)
+    loadBindStatus().catch(() => {})
+    loadAccounts().catch(err => document.getElementById('accountMessage').textContent = '读取账号失败: ' + err.message)
+    setProfileEditorMode(false)
+    setMaterialEditorMode(false)
+    renderMaterialImportQueue()
+    loadMaterials().catch(err => {
+      document.getElementById('materialsMessage').textContent = '读取素材失败: ' + err.message
+    })
+    loadLogs().catch(err => {
+      document.getElementById('logOutput').textContent = '读取日志失败: ' + err.message
+      document.getElementById('logMeta').textContent = '日志暂不可用'
+    })
+    setInterval(() => loadBindStatus().catch(() => {}), 3000)
+    setInterval(() => loadStatus().catch(() => {}), 10000)
+  </script>
+</body>
+</html>

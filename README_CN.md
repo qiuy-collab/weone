@@ -1,4 +1,4 @@
-# WeClaw
+# weone
 
 [English](README.md)
 
@@ -14,29 +14,29 @@
 
 ```bash
 # 一键安装
-curl -sSL https://raw.githubusercontent.com/fastclaw-ai/weclaw/main/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/qiuy-collab/weone/main/install.sh | sh
 
 # 启动（首次运行会弹出微信扫码登录）
-weclaw start
+weone start
 ```
 
-就这么简单。首次启动时，WeClaw 会：
+就这么简单。首次启动时，weone 会：
 
 1. 显示二维码 — 用微信扫码登录
 2. 自动检测已安装的 AI Agent（Claude、Codex、Gemini 等）
-3. 保存配置到 `~/.weclaw/config.json`
+3. 保存配置到 `~/.weone/config.json`
 4. 开始接收和回复微信消息
 
-使用 `weclaw login` 可以添加更多微信账号。
+使用 `weone login` 可以添加更多微信账号。
 
 ### 其他安装方式
 
 ```bash
 # 通过 Go 安装
-go install github.com/fastclaw-ai/weclaw@latest
+go install github.com/qiuy-collab/weone@latest
 
 # 通过 Docker
-docker run -it -v ~/.weclaw:/root/.weclaw ghcr.io/fastclaw-ai/weclaw start
+docker run -it -v ~/.weone:/root/.weone ghcr.io/qiuy-collab/weone start
 ```
 
 ## 架构
@@ -154,7 +154,7 @@ curl -X POST http://127.0.0.1:18011/api/send \
 
 ## 配置
 
-配置文件路径：`~/.weclaw/config.json`
+配置文件路径：`~/.weone/config.json`
 
 ```json
 {
@@ -235,7 +235,7 @@ curl -X POST http://127.0.0.1:18011/api/send \
 }
 ```
 
-通过 `cwd` 指定 Agent 的工作目录（workspace）。不设置则默认为 `~/.weclaw/workspace`。
+通过 `cwd` 指定 Agent 的工作目录（workspace）。不设置则默认为 `~/.weone/workspace`。
 
 > **注意：** 这些参数会跳过安全检查，请了解风险后再启用。ACP 模式的 Agent 会自动处理权限，无需配置。
 
@@ -255,15 +255,15 @@ weclaw stop
 weclaw start -f
 ```
 
-日志输出到 `~/.weclaw/weclaw.log`。
+日志输出到 `~/.weone/weone.log`。
 
 ### 系统服务（开机自启）
 
 **macOS (launchd)：**
 
 ```bash
-cp service/com.fastclaw.weclaw.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.fastclaw.weclaw.plist
+cp service/com.fastclaw.weclaw.plist ~/Library/LaunchAgents/com.qiuy-collab.weone.plist
+launchctl load ~/Library/LaunchAgents/com.qiuy-collab.weone.plist
 ```
 
 **Linux (systemd)：**
@@ -280,17 +280,17 @@ sudo systemctl enable --now weclaw
 docker build -t weclaw .
 
 # 登录（交互式，扫描二维码）
-docker run -it -v ~/.weclaw:/root/.weclaw weclaw login
+docker run -it -v ~/.weone:/root/.weone weone login
 
 # 使用 HTTP Agent 启动
-docker run -d --name weclaw \
-  -v ~/.weclaw:/root/.weclaw \
+docker run -d --name weone \
+  -v ~/.weone:/root/.weone \
   -e OPENCLAW_GATEWAY_URL=https://api.example.com \
   -e OPENCLAW_GATEWAY_TOKEN=sk-xxx \
-  weclaw
+  weone
 
 # 查看日志
-docker logs -f weclaw
+docker logs -f weone
 ```
 
 > 注意：ACP 和 CLI 模式需要容器内有对应的 Agent 二进制文件。
@@ -332,13 +332,13 @@ go build -o weclaw .
 
 ## 贡献者
 
-<a href="https://github.com/fastclaw-ai/weclaw/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=fastclaw-ai/weclaw" />
+<a href="https://github.com/qiuy-collab/weone/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=qiuy-collab/weone" />
 </a>
 
 ## Star 趋势
 
-[![Star History Chart](https://api.star-history.com/svg?repos=fastclaw-ai/weclaw&type=Timeline)](https://star-history.com/#fastclaw-ai/weclaw&Timeline)
+[![Star History Chart](https://api.star-history.com/svg?repos=qiuy-collab/weone&type=Timeline)](https://star-history.com/#qiuy-collab/weone&Timeline)
 
 ## 许可证
 

@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-REPO="fastclaw-ai/weclaw"
-BINARY="weclaw"
+REPO="qiuy-collab/weone"
+BINARY="weone"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 # Detect OS
@@ -24,7 +24,7 @@ echo "Detected: ${OS}/${ARCH}"
 
 # Get latest version
 echo "Fetching latest release..."
-VERSION=$(curl -fsSL -H "User-Agent: weclaw-installer" "https://api.github.com/repos/${REPO}/releases/latest" | sed -n 's/.*"tag_name" *: *"\([^"]*\)".*/\1/p')
+VERSION=$(curl -fsSL -H "User-Agent: weone-installer" "https://api.github.com/repos/${REPO}/releases/latest" | sed -n 's/.*"tag_name" *: *"\([^"]*\)".*/\1/p')
 
 if [ -z "$VERSION" ]; then
   echo "Error: could not determine latest version. Is there a release on GitHub?"
@@ -58,7 +58,7 @@ if [ "$OS" = "darwin" ]; then
 fi
 
 echo ""
-echo "weclaw ${VERSION} installed to ${INSTALL_DIR}/${BINARY}"
+echo "weone ${VERSION} installed to ${INSTALL_DIR}/${BINARY}"
 echo ""
 echo "Get started:"
-echo "  weclaw start"
+echo "  weone start"

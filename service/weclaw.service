@@ -1,10 +1,10 @@
 [Unit]
-Description=WeClaw - WeChat AI Agent Bridge
+Description=weone - WeChat AI Agent Bridge
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/weclaw start
+ExecStart=/usr/local/bin/weone start
 Restart=always
 RestartSec=5
 StandardOutput=journal

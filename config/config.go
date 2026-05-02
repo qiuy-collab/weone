@@ -13,7 +13,41 @@ type Config struct {
 	DefaultAgent string                 `json:"default_agent"`
 	APIAddr      string                 `json:"api_addr,omitempty"`
 	SaveDir      string                 `json:"save_dir,omitempty"`
+	Runtime      RuntimeConfig          `json:"runtime,omitempty"`
+	Proactive    ProactiveConfig        `json:"proactive,omitempty"`
 	Agents       map[string]AgentConfig `json:"agents"`
+}
+
+// RuntimeConfig holds configuration for the built-in companion runtime.
+type RuntimeConfig struct {
+	Enabled    bool           `json:"enabled,omitempty"`
+	Name       string         `json:"name,omitempty"`
+	MaxHistory int            `json:"max_history,omitempty"`
+	Provider   ProviderConfig `json:"provider,omitempty"`
+	Persona    PersonaConfig  `json:"persona,omitempty"`
+}
+
+type ProactiveConfig struct {
+	Enabled         bool   `json:"enabled,omitempty"`
+	DefaultTimezone string `json:"default_timezone,omitempty"`
+}
+
+// ProviderConfig holds direct model API settings for the packaged runtime.
+type ProviderConfig struct {
+	Type      string            `json:"type,omitempty"`
+	Endpoint  string            `json:"endpoint,omitempty"`
+	APIKey    string            `json:"api_key,omitempty"`
+	Model     string            `json:"model,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	TimeoutMs int               `json:"timeout_ms,omitempty"`
+}
+
+// PersonaConfig holds the phase-1 persona fields for the built-in runtime.
+type PersonaConfig struct {
+	SystemPrompt string `json:"system_prompt,omitempty"`
+	Identity     string `json:"identity,omitempty"`
+	Tone         string `json:"tone,omitempty"`
+	Style        string `json:"style,omitempty"`
 }
 
 // AgentConfig holds configuration for a single agent.
@@ -67,17 +101,50 @@ func BuildAliasMap(agents map[string]AgentConfig) map[string]string {
 // DefaultConfig returns an empty configuration.
 func DefaultConfig() *Config {
 	return &Config{
+		Runtime: RuntimeConfig{
+			Enabled: true,
+			Name:    "companion",
+			Provider: ProviderConfig{
+				Type:      "openai",
+				Model:     "gpt-4o-mini",
+				TimeoutMs: 120000,
+			},
+			Persona: PersonaConfig{
+				Identity: "陪伴助手",
+				Tone:     "温柔、自然、真诚",
+				Style:    "简洁但有陪伴感",
+			},
+		},
+		Proactive: ProactiveConfig{
+			Enabled: true,
+		},
 		Agents: make(map[string]AgentConfig),
 	}
 }
 
-// ConfigPath returns the path to the config file.
-func ConfigPath() (string, error) {
+func preferredStateDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".weclaw", "config.json"), nil
+	return filepath.Join(home, ".weone"), nil
+}
+
+// StateDir returns the runtime state directory.
+func StateDir() (string, error) {
+	if v := os.Getenv("WEONE_HOME"); v != "" {
+		return filepath.Clean(v), nil
+	}
+	return preferredStateDir()
+}
+
+// ConfigPath returns the path to the config file.
+func ConfigPath() (string, error) {
+	root, err := StateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "config.json"), nil
 }
 
 // Load loads configuration from disk and environment variables.
@@ -109,15 +176,60 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+func envValue(keys ...string) string {
+	for _, key := range keys {
+		if v := os.Getenv(key); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 func loadEnv(cfg *Config) {
-	if v := os.Getenv("WECLAW_DEFAULT_AGENT"); v != "" {
+	if v := envValue("WEONE_DEFAULT_AGENT", "WECLAW_DEFAULT_AGENT"); v != "" {
 		cfg.DefaultAgent = v
 	}
-	if v := os.Getenv("WECLAW_API_ADDR"); v != "" {
+	if v := envValue("WEONE_API_ADDR", "WECLAW_API_ADDR"); v != "" {
 		cfg.APIAddr = v
 	}
-	if v := os.Getenv("WECLAW_SAVE_DIR"); v != "" {
+	if v := envValue("WEONE_SAVE_DIR", "WECLAW_SAVE_DIR"); v != "" {
 		cfg.SaveDir = v
+	}
+	if v := envValue("WEONE_RUNTIME_ENABLED", "WECLAW_RUNTIME_ENABLED"); v != "" {
+		cfg.Runtime.Enabled = v != "0" && v != "false"
+	}
+	if v := envValue("WEONE_RUNTIME_NAME", "WECLAW_RUNTIME_NAME"); v != "" {
+		cfg.Runtime.Name = v
+	}
+	if v := envValue("WEONE_PROVIDER_TYPE", "WECLAW_PROVIDER_TYPE"); v != "" {
+		cfg.Runtime.Provider.Type = v
+	}
+	if v := envValue("WEONE_PROVIDER_ENDPOINT", "WECLAW_PROVIDER_ENDPOINT"); v != "" {
+		cfg.Runtime.Provider.Endpoint = v
+	}
+	if v := envValue("WEONE_PROVIDER_API_KEY", "WECLAW_PROVIDER_API_KEY"); v != "" {
+		cfg.Runtime.Provider.APIKey = v
+	}
+	if v := envValue("WEONE_PROVIDER_MODEL", "WECLAW_PROVIDER_MODEL"); v != "" {
+		cfg.Runtime.Provider.Model = v
+	}
+	if v := envValue("WEONE_PERSONA_SYSTEM_PROMPT", "WECLAW_PERSONA_SYSTEM_PROMPT"); v != "" {
+		cfg.Runtime.Persona.SystemPrompt = v
+	}
+	if v := envValue("WEONE_PERSONA_IDENTITY", "WECLAW_PERSONA_IDENTITY"); v != "" {
+		cfg.Runtime.Persona.Identity = v
+	}
+	if v := envValue("WEONE_PERSONA_TONE", "WECLAW_PERSONA_TONE"); v != "" {
+		cfg.Runtime.Persona.Tone = v
+	}
+	if v := envValue("WEONE_PERSONA_STYLE", "WECLAW_PERSONA_STYLE"); v != "" {
+		cfg.Runtime.Persona.Style = v
+	}
+	if v := envValue("WEONE_PROACTIVE_ENABLED", "WECLAW_PROACTIVE_ENABLED"); v != "" {
+		cfg.Proactive.Enabled = v != "0" && v != "false"
+	}
+	if v := envValue("WEONE_PROACTIVE_DEFAULT_TIMEZONE", "WECLAW_PROACTIVE_DEFAULT_TIMEZONE"); v != "" {
+		cfg.Proactive.DefaultTimezone = v
 	}
 }
 

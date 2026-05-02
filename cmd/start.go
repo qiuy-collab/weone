@@ -4,22 +4,28 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"sync"
 	"syscall"
 	"time"
 
-	"github.com/fastclaw-ai/weclaw/agent"
-	"github.com/fastclaw-ai/weclaw/api"
-	"github.com/fastclaw-ai/weclaw/config"
-	"github.com/fastclaw-ai/weclaw/ilink"
-	"github.com/fastclaw-ai/weclaw/messaging"
 	"github.com/mdp/qrterminal/v3"
+	"github.com/qiuy-collab/weone/agent"
+	"github.com/qiuy-collab/weone/api"
+	"github.com/qiuy-collab/weone/config"
+	"github.com/qiuy-collab/weone/ilink"
+	internalruntime "github.com/qiuy-collab/weone/internal/runtime"
+	"github.com/qiuy-collab/weone/materials"
+	"github.com/qiuy-collab/weone/memory"
+	"github.com/qiuy-collab/weone/messaging"
+	"github.com/qiuy-collab/weone/proactive"
 	"github.com/spf13/cobra"
 )
+
+const defaultAPIAddr = "127.0.0.1:18011"
 
 var (
 	foregroundFlag bool
@@ -39,20 +45,30 @@ var startCmd = &cobra.Command{
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
+	apiAddr := resolveAPIAddr("")
 	if !foregroundFlag {
-		// Check if login is needed — if so, do it in foreground first, then daemon
-		accounts, _ := ilink.LoadAllCredentials()
-		if len(accounts) == 0 {
-			fmt.Println("No WeChat accounts found, starting login...")
-			ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-			_, err := doLogin(ctx)
-			cancel()
-			if err != nil {
-				return fmt.Errorf("login failed: %w", err)
-			}
+		if running, pid := currentInstancePID(); running {
+			fmt.Printf("weone is already running (pid=%d)\n", pid)
+			fmt.Printf("Control panel: http://%s\n", apiAddr)
+			return nil
 		}
-		return runDaemon()
+		if reachable, err := apiServerReachable(apiAddr); err == nil && reachable {
+			return fmt.Errorf("weone appears to already be running at http://%s, but the pid file is missing; stop the existing process first", apiAddr)
+		}
+		// Start the web service even with zero accounts; users can bind later from the control panel.
+		return runDaemon(apiAddr)
 	}
+
+	if running, pid := currentInstancePID(); running {
+		return fmt.Errorf("weone is already running (pid=%d), open http://%s or run `weone stop` first", pid, apiAddr)
+	}
+	if reachable, err := apiServerReachable(apiAddr); err == nil && reachable {
+		return fmt.Errorf("weone appears to already be running at http://%s, but the pid file is missing; stop the existing process first", apiAddr)
+	}
+	if err := writePIDFile(os.Getpid()); err != nil {
+		return fmt.Errorf("write pid file: %w", err)
+	}
+	defer cleanupPIDFile(os.Getpid())
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -63,74 +79,72 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load credentials: %w", err)
 	}
 
-	// No accounts — trigger login
-	if len(accounts) == 0 {
-		log.Println("No WeChat accounts found, starting login...")
-		creds, err := doLogin(ctx)
-		if err != nil {
-			return fmt.Errorf("login failed: %w", err)
-		}
-		accounts = append(accounts, creds)
-	}
-
-	// Load config and auto-detect agents
+	// Load config
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-
-	if config.DetectAndConfigure(cfg) {
-		if err := config.Save(cfg); err != nil {
-			log.Printf("Warning: failed to save auto-detected config: %v", err)
-		} else {
-			path, _ := config.ConfigPath()
-			log.Printf("Auto-detected agents saved to %s", path)
-		}
-	}
-
-	// Log all available agents
-	if len(cfg.Agents) > 0 {
-		names := make([]string, 0, len(cfg.Agents))
-		for name := range cfg.Agents {
-			names = append(names, name)
-		}
-		log.Printf("Available agents: %v (default: %s)", names, cfg.DefaultAgent)
-	}
+	log.Printf("[start] loaded config runtime_enabled=%v runtime_name=%q", cfg.Runtime.Enabled, cfg.Runtime.Name)
 
 	// Create handler with an agent factory for on-demand agent creation
+	runtimeName := cfg.Runtime.Name
+	if runtimeName == "" {
+		runtimeName = "companion"
+	}
+	cfg.Runtime.Name = runtimeName
+	cfg.Runtime.Enabled = true
+	cfg.DefaultAgent = runtimeName
+	cfg.Agents = map[string]config.AgentConfig{}
+
+	var runtimeSvc *internalruntime.Service
+	if cfg.Runtime.Enabled {
+		runtimeSvc = internalruntime.NewService(cfg.Runtime)
+	}
+	importAnalyzer := materials.NewImportAnalyzer(cfg.Runtime.Provider)
+
+	memorySvc, err := memory.NewService()
+	if err != nil {
+		return fmt.Errorf("init memory service: %w", err)
+	}
+	defer memorySvc.Close()
+
+	materialsSvc := materials.NewService(importAnalyzer)
+	accountManager := api.NewAccountRuntimeManager()
+	proactiveSvc := proactive.NewService(runtimeSvc, memorySvc, materialsSvc, accountManager)
+	proactiveScheduler := proactive.NewScheduler(proactiveSvc)
+	proactiveSvc.SetScheduler(proactiveScheduler)
+
 	handler := messaging.NewHandler(
-		func(ctx context.Context, name string) agent.Agent {
-			return createAgentByName(ctx, cfg, name)
-		},
+		nil,
 		func(name string) error {
-			cfg.DefaultAgent = name
+			cfg.DefaultAgent = runtimeName
 			return config.Save(cfg)
 		},
+		runtimeName,
+		runtimeSvc,
+		memorySvc,
+		materialsSvc,
 	)
 
 	// Populate agent metas for /status
 	var metas []messaging.AgentMeta
-	workDirs := make(map[string]string, len(cfg.Agents))
-	for name, agCfg := range cfg.Agents {
-		command := agCfg.Command
-		if agCfg.Type == "http" {
-			command = agCfg.Endpoint
-		}
-		metas = append(metas, messaging.AgentMeta{
-			Name:    name,
-			Type:    agCfg.Type,
-			Command: command,
-			Model:   agCfg.Model,
-		})
-		if agCfg.Cwd != "" {
-			workDirs[name] = agCfg.Cwd
-		}
-	}
+	metas = append(metas, messaging.AgentMeta{
+		Name:    runtimeName,
+		Type:    "runtime",
+		Command: cfg.Runtime.Provider.Endpoint,
+		Model:   cfg.Runtime.Provider.Model,
+	})
+	workDirs := make(map[string]string)
 	handler.SetAgentMetas(metas)
 	handler.SetAgentWorkDirs(workDirs)
 
-	// Load custom aliases from agent configs
-	handler.SetCustomAliases(config.BuildAliasMap(cfg.Agents))
+	// Runtime-only mode: disable custom aliases for external agents
+	handler.SetCustomAliases(nil)
+	handler.SetInboundRecorder(func(botID, userID string, at time.Time) {
+		if err := proactiveSvc.RecordInbound(botID, userID, at); err != nil {
+			log.Printf("[proactive] record inbound failed bot=%s user=%s err=%v", botID, userID, err)
+		}
+	})
 
 	// Set save directory for images/files if configured
 	if cfg.SaveDir != "" {
@@ -138,51 +152,68 @@ func runStart(cmd *cobra.Command, args []string) error {
 		log.Printf("Image save directory: %s", cfg.SaveDir)
 	}
 
-	// Start default agent initialization in background so monitors can start immediately
+	// Start default reply engine initialization in background so monitors can start immediately
 	go func() {
+		if cfg.Runtime.Enabled {
+			cfg.DefaultAgent = runtimeName
+			log.Printf("Using packaged runtime %q as default", runtimeName)
+			return
+		}
+
 		if cfg.DefaultAgent == "" {
 			log.Println("No default agent configured, staying in echo mode")
 			return
 		}
+
 		log.Printf("Initializing default agent %q in background...", cfg.DefaultAgent)
 		ag := createAgentByName(ctx, cfg, cfg.DefaultAgent)
 		if ag == nil {
 			log.Printf("Failed to initialize default agent %q, staying in echo mode", cfg.DefaultAgent)
-		} else {
-			handler.SetDefaultAgent(cfg.DefaultAgent, ag)
+			return
 		}
+		handler.SetDefaultAgent(cfg.DefaultAgent, ag)
 	}()
 
 	// Start HTTP API server for sending messages
-	var clients []*ilink.Client
-	for _, c := range accounts {
-		clients = append(clients, ilink.NewClient(c))
+	accountManager.SetMonitorStarter(func(creds *ilink.Credentials) {
+		if creds == nil {
+			return
+		}
+		client := ilink.NewClient(creds)
+		accountCtx, accountCancel := context.WithCancel(ctx)
+		accountManager.Add(client, accountCancel)
+		log.Printf("[start] account bot_id=%s status=ready", client.BotID())
+		go runMonitorWithRestart(accountCtx, creds, handler)
+	})
+	log.Printf("[start] prepared %d account client(s)", len(accounts))
+	for _, creds := range accounts {
+		accountManager.AddCredentials(creds)
 	}
 	// Resolve API addr: flag > env/config > default
-	apiAddr := cfg.APIAddr // already includes env override from loadEnv
-	if apiAddrFlag != "" {
-		apiAddr = apiAddrFlag
-	}
-	apiServer := api.NewServer(clients, apiAddr)
+	apiAddr = resolveAPIAddr(cfg.APIAddr)
+	apiServer := api.NewServer(accountManager, handler, memorySvc, materialsSvc, proactiveSvc, apiAddr, cfg, config.Save, func() string {
+		snapshot := handler.StatusSnapshot()
+		if snapshot.DefaultAgent == "" {
+			return ""
+		}
+		return snapshot.DefaultAgent
+	})
 	go func() {
 		if err := apiServer.Run(ctx); err != nil {
 			log.Printf("API server error: %v", err)
 		}
 	}()
-
-	// Start monitors immediately — they will use echo mode until agent is ready
-	log.Printf("Starting message bridge for %d account(s)...", len(accounts))
-
-	var wg sync.WaitGroup
-	for _, creds := range accounts {
-		wg.Add(1)
-		go func(c *ilink.Credentials) {
-			defer wg.Done()
-			runMonitorWithRestart(ctx, c, handler)
-		}(creds)
+	if cfg.Proactive.Enabled {
+		if err := proactiveScheduler.Start(ctx); err != nil {
+			return fmt.Errorf("start proactive scheduler: %w", err)
+		}
+		log.Printf("[proactive] scheduler started")
 	}
 
-	wg.Wait()
+	// Start monitors immediately — they will use runtime-only routing
+	log.Printf("[start] starting message bridge account_count=%d api_addr=%s runtime=%s", len(accounts), apiAddr, runtimeName)
+
+	<-ctx.Done()
 	log.Println("All monitors stopped")
 	return nil
 }
@@ -334,31 +365,44 @@ func doLogin(ctx context.Context) (*ilink.Credentials, error) {
 
 // --- Daemon mode ---
 
-func weclawDir() string {
+func weoneDir() string {
+	root, err := config.StateDir()
+	if err == nil {
+		return root
+	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".weclaw")
+	return filepath.Join(home, ".weone")
+}
+
+func stateFile(name string) string {
+	return filepath.Join(weoneDir(), name)
 }
 
 func pidFile() string {
-	return filepath.Join(weclawDir(), "weclaw.pid")
+	return stateFile("weone.pid")
+}
+
+func preferredPIDFile() string {
+	return stateFile("weone.pid")
 }
 
 func logFile() string {
-	return filepath.Join(weclawDir(), "weclaw.log")
+	return stateFile("weone.log")
 }
 
-// runDaemon spawns weclaw start (without --daemon) as a background process.
-func runDaemon() error {
-	// Kill any existing weclaw processes before starting a new one
-	stopAllWeclaw()
+func preferredLogFile() string {
+	return stateFile("weone.log")
+}
 
+// runDaemon spawns weone start (without --daemon) as a background process.
+func runDaemon(apiAddr string) error {
 	// Ensure log directory exists
-	if err := os.MkdirAll(weclawDir(), 0o700); err != nil {
-		return fmt.Errorf("create weclaw dir: %w", err)
+	if err := os.MkdirAll(weoneDir(), 0o700); err != nil {
+		return fmt.Errorf("create weone dir: %w", err)
 	}
 
 	// Open log file
-	lf, err := os.OpenFile(logFile(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	lf, err := os.OpenFile(preferredLogFile(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return fmt.Errorf("open log file: %w", err)
 	}
@@ -369,7 +413,11 @@ func runDaemon() error {
 		return fmt.Errorf("find executable: %w", err)
 	}
 
-	cmd := exec.Command(exe, "start", "-f")
+	args := []string{"start", "-f"}
+	if apiAddr != "" && apiAddr != defaultAPIAddr {
+		args = append(args, "--api-addr", apiAddr)
+	}
+	cmd := exec.Command(exe, args...)
 	cmd.Stdout = lf
 	cmd.Stderr = lf
 	setSysProcAttr(cmd)
@@ -381,15 +429,20 @@ func runDaemon() error {
 
 	// Save PID
 	pid := cmd.Process.Pid
-	os.WriteFile(pidFile(), []byte(fmt.Sprintf("%d", pid)), 0o644)
+	if err := writePIDFile(pid); err != nil {
+		lf.Close()
+		_ = cmd.Process.Kill()
+		return fmt.Errorf("write pid file: %w", err)
+	}
 
 	// Detach — don't wait
 	cmd.Process.Release()
 	lf.Close()
 
-	fmt.Printf("weclaw started in background (pid=%d)\n", pid)
-	fmt.Printf("Log: %s\n", logFile())
-	fmt.Printf("Stop: weclaw stop\n")
+	fmt.Printf("weone started in background (pid=%d)\n", pid)
+	fmt.Printf("Control panel: http://%s\n", apiAddr)
+	fmt.Printf("Log: %s\n", preferredLogFile())
+	fmt.Printf("Stop: weone stop\n")
 	return nil
 }
 
@@ -405,31 +458,102 @@ func readPid() (int, error) {
 	return pid, nil
 }
 
-func processExists(pid int) bool {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
+func writePIDFile(pid int) error {
+	if err := os.MkdirAll(weoneDir(), 0o700); err != nil {
+		return err
 	}
-	// Signal 0 checks if process exists without killing it
-	return p.Signal(syscall.Signal(0)) == nil
+	return os.WriteFile(pidFile(), []byte(fmt.Sprintf("%d", pid)), 0o644)
 }
 
-// stopAllWeclaw kills all running weclaw processes (by PID file and by process scan).
-func stopAllWeclaw() {
-	// 1. Kill by PID file
-	if pid, err := readPid(); err == nil && processExists(pid) {
-		if p, err := os.FindProcess(pid); err == nil {
-			_ = p.Signal(syscall.SIGTERM)
-		}
-	}
-	os.Remove(pidFile())
-
-	// 2. Kill any remaining weclaw processes by scanning
-	exe, err := os.Executable()
+func cleanupPIDFile(pid int) {
+	currentPID, err := readPid()
 	if err != nil {
 		return
 	}
-	// Use pkill to kill all processes matching the executable path
-	_ = exec.Command("pkill", "-f", exe+" start").Run()
-	time.Sleep(500 * time.Millisecond)
+	if currentPID == pid {
+		_ = os.Remove(pidFile())
+	}
+}
+
+func currentInstancePID() (bool, int) {
+	pid, err := readPid()
+	if err != nil {
+		return false, 0
+	}
+	if pid == os.Getpid() {
+		return false, 0
+	}
+	if processExists(pid) {
+		return true, pid
+	}
+	_ = os.Remove(pidFile())
+	return false, 0
+}
+
+func resolveAPIAddr(configAddr string) string {
+	if apiAddrFlag != "" {
+		return apiAddrFlag
+	}
+	if configAddr != "" {
+		return configAddr
+	}
+	return defaultAPIAddr
+}
+
+func apiServerReachable(addr string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/health", nil)
+	if err != nil {
+		return false, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK, nil
+}
+
+func processExists(pid int) bool {
+	return processExistsPlatform(pid)
+}
+
+func stopProcess(pid int) bool {
+	if !processExists(pid) {
+		return false
+	}
+	_ = terminateProcess(pid, false)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if !processExists(pid) {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	_ = terminateProcess(pid, true)
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !processExists(pid) {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return !processExists(pid)
+}
+
+// stopAllWeclaw kills the running weclaw process tracked by the PID file.
+func stopAllWeclaw() bool {
+	pid, err := readPid()
+	if err != nil {
+		return false
+	}
+	if !processExists(pid) {
+		_ = os.Remove(pidFile())
+		return false
+	}
+	stopped := stopProcess(pid)
+	_ = os.Remove(pidFile())
+	return stopped
 }

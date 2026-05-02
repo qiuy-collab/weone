@@ -10,9 +10,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fastclaw-ai/weclaw/agent"
-	"github.com/fastclaw-ai/weclaw/ilink"
 	"github.com/google/uuid"
+	"github.com/qiuy-collab/weone/agent"
+	"github.com/qiuy-collab/weone/config"
+	"github.com/qiuy-collab/weone/ilink"
+	internalruntime "github.com/qiuy-collab/weone/internal/runtime"
+	"github.com/qiuy-collab/weone/materials"
+	"github.com/qiuy-collab/weone/memory"
 )
 
 // AgentFactory creates an agent by config name. Returns nil if the name is unknown.
@@ -33,20 +37,36 @@ type AgentMeta struct {
 type Handler struct {
 	mu            sync.RWMutex
 	defaultName   string
+	runtimeName   string
 	agents        map[string]agent.Agent // name -> running agent
-	agentMetas    []AgentMeta            // all configured agents (for /status)
-	agentWorkDirs map[string]string      // agent name -> configured/runtime cwd
-	customAliases map[string]string      // custom alias -> agent name (from config)
+	runtimeSvc    *internalruntime.Service
+	memorySvc     *memory.Service
+	materialsSvc  *materials.Service
+	agentMetas    []AgentMeta       // all configured agents (for /status)
+	agentWorkDirs map[string]string // agent name -> configured/runtime cwd
+	customAliases map[string]string // custom alias -> agent name (from config)
 	factory       AgentFactory
 	saveDefault   SaveDefaultFunc
-	contextTokens sync.Map   // map[userID]contextToken
-	saveDir       string     // directory to save images/files to
-	seenMsgs      sync.Map   // map[int64]time.Time — dedup by message_id
+	contextTokens sync.Map // map[userID]contextToken
+	saveDir       string   // directory to save images/files to
+	seenMsgs      sync.Map // map[int64]time.Time — dedup by message_id
+	onInbound     func(botID, userID string, at time.Time)
+}
+
+// StatusSnapshot describes the current default reply engine.
+type StatusSnapshot struct {
+	DefaultAgent  string
+	RuntimeName   string
+	RuntimeActive bool
 }
 
 // NewHandler creates a new message handler.
-func NewHandler(factory AgentFactory, saveDefault SaveDefaultFunc) *Handler {
+func NewHandler(factory AgentFactory, saveDefault SaveDefaultFunc, runtimeName string, runtimeSvc *internalruntime.Service, memorySvc *memory.Service, materialsSvc *materials.Service) *Handler {
 	return &Handler{
+		runtimeName:   runtimeName,
+		runtimeSvc:    runtimeSvc,
+		memorySvc:     memorySvc,
+		materialsSvc:  materialsSvc,
 		agents:        make(map[string]agent.Agent),
 		agentWorkDirs: make(map[string]string),
 		factory:       factory,
@@ -57,6 +77,10 @@ func NewHandler(factory AgentFactory, saveDefault SaveDefaultFunc) *Handler {
 // SetSaveDir sets the directory for saving images and files.
 func (h *Handler) SetSaveDir(dir string) {
 	h.saveDir = dir
+}
+
+func (h *Handler) SetInboundRecorder(recorder func(botID, userID string, at time.Time)) {
+	h.onInbound = recorder
 }
 
 // cleanSeenMsgs removes entries older than 5 minutes from the dedup cache.
@@ -104,6 +128,34 @@ func (h *Handler) SetDefaultAgent(name string, ag agent.Agent) {
 	log.Printf("[handler] default agent ready: %s (%s)", name, ag.Info())
 }
 
+// StatusSnapshot returns the current default reply engine state.
+func (h *Handler) StatusSnapshot() StatusSnapshot {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	defaultAgent := h.defaultName
+	if defaultAgent == "" && h.runtimeSvc != nil {
+		defaultAgent = h.runtimeName
+	}
+
+	return StatusSnapshot{
+		DefaultAgent:  defaultAgent,
+		RuntimeName:   h.runtimeName,
+		RuntimeActive: defaultAgent != "" && defaultAgent == h.runtimeName,
+	}
+}
+
+// UpdateRuntimeConfig hot-reloads the packaged runtime configuration.
+func (h *Handler) UpdateRuntimeConfig(cfg config.RuntimeConfig) error {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.runtimeSvc == nil {
+		return fmt.Errorf("runtime not configured")
+	}
+	h.runtimeSvc.UpdateConfig(cfg)
+	return nil
+}
+
 // getAgent returns a running agent by name, or starts it on demand via factory.
 func (h *Handler) getAgent(ctx context.Context, name string) (agent.Agent, error) {
 	// Fast path: already running
@@ -142,7 +194,7 @@ func (h *Handler) getAgent(ctx context.Context, name string) (agent.Agent, error
 func (h *Handler) getDefaultAgent() agent.Agent {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	if h.defaultName == "" {
+	if h.defaultName == "" || h.defaultName == h.runtimeName {
 		return nil
 	}
 	return h.agents[h.defaultName]
@@ -150,6 +202,10 @@ func (h *Handler) getDefaultAgent() agent.Agent {
 
 // isKnownAgent checks if a name corresponds to a configured agent.
 func (h *Handler) isKnownAgent(name string) bool {
+	if name == h.runtimeName {
+		return true
+	}
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	// Check running agents
@@ -257,6 +313,19 @@ func (h *Handler) parseCommand(text string) ([]string, string) {
 	return unique, rest
 }
 
+func shortTraceID(msg ilink.WeixinMessage, clientID string) string {
+	if msg.MessageID != 0 {
+		return fmt.Sprintf("msg-%d", msg.MessageID)
+	}
+	if clientID != "" {
+		if len(clientID) > 8 {
+			return clientID[:8]
+		}
+		return clientID
+	}
+	return "unknown"
+}
+
 // HandleMessage processes a single incoming message.
 func (h *Handler) HandleMessage(ctx context.Context, client *ilink.Client, msg ilink.WeixinMessage) {
 	// Only process user messages that are finished
@@ -278,11 +347,15 @@ func (h *Handler) HandleMessage(ctx context.Context, client *ilink.Client, msg i
 	}
 
 	// Extract text from item list (text message or voice transcription)
+	// Generate a clientID for this reply (used to correlate typing → finish)
+	clientID := NewClientID()
+	traceID := shortTraceID(msg, clientID)
+
 	text := extractText(msg)
 	if text == "" {
 		if voiceText := extractVoiceText(msg); voiceText != "" {
 			text = voiceText
-			log.Printf("[handler] voice transcription from %s: %q", msg.FromUserID, truncate(text, 80))
+			log.Printf("[handler] trace=%s user=%s source=voice-transcription text=%q", traceID, msg.FromUserID, truncate(text, 80))
 		}
 	}
 	if text == "" {
@@ -291,24 +364,24 @@ func (h *Handler) HandleMessage(ctx context.Context, client *ilink.Client, msg i
 			h.handleImageSave(ctx, client, msg, img)
 			return
 		}
-		log.Printf("[handler] received non-text message from %s, skipping", msg.FromUserID)
+		log.Printf("[handler] trace=%s user=%s route=skip reason=non-text", traceID, msg.FromUserID)
 		return
 	}
 
-	log.Printf("[handler] received from %s: %q", msg.FromUserID, truncate(text, 80))
+	log.Printf("[handler] trace=%s user=%s message_id=%d route=runtime-only text=%q", traceID, msg.FromUserID, msg.MessageID, truncate(text, 80))
 
 	// Store context token for this user
 	h.contextTokens.Store(msg.FromUserID, msg.ContextToken)
-
-	// Generate a clientID for this reply (used to correlate typing → finish)
-	clientID := NewClientID()
+	if h.onInbound != nil {
+		h.onInbound(client.BotID(), msg.FromUserID, time.Now().UTC())
+	}
 
 	// Intercept URLs: save to Linkhoard directly without AI agent
 	trimmed := strings.TrimSpace(text)
 	if h.saveDir != "" && IsURL(trimmed) {
 		rawURL := ExtractURL(trimmed)
 		if rawURL != "" {
-			log.Printf("[handler] saving URL to linkhoard: %s", rawURL)
+			log.Printf("[handler] trace=%s user=%s branch=save-url url=%s", traceID, msg.FromUserID, rawURL)
 			title, err := SaveLinkToLinkhoard(ctx, h.saveDir, rawURL)
 			var reply string
 			if err != nil {
@@ -326,24 +399,28 @@ func (h *Handler) HandleMessage(ctx context.Context, client *ilink.Client, msg i
 
 	// Built-in commands (no typing needed)
 	if trimmed == "/info" {
+		log.Printf("[handler] trace=%s user=%s branch=command name=/info", traceID, msg.FromUserID)
 		reply := h.buildStatus()
 		if err := SendTextReply(ctx, client, msg.FromUserID, reply, msg.ContextToken, clientID); err != nil {
 			log.Printf("[handler] failed to send reply to %s: %v", msg.FromUserID, err)
 		}
 		return
 	} else if trimmed == "/help" {
+		log.Printf("[handler] trace=%s user=%s branch=command name=/help", traceID, msg.FromUserID)
 		reply := buildHelpText()
 		if err := SendTextReply(ctx, client, msg.FromUserID, reply, msg.ContextToken, clientID); err != nil {
 			log.Printf("[handler] failed to send reply to %s: %v", msg.FromUserID, err)
 		}
 		return
 	} else if trimmed == "/new" || trimmed == "/clear" {
+		log.Printf("[handler] trace=%s user=%s branch=command name=%s", traceID, msg.FromUserID, trimmed)
 		reply := h.resetDefaultSession(ctx, msg.FromUserID)
 		if err := SendTextReply(ctx, client, msg.FromUserID, reply, msg.ContextToken, clientID); err != nil {
 			log.Printf("[handler] failed to send reply to %s: %v", msg.FromUserID, err)
 		}
 		return
 	} else if strings.HasPrefix(trimmed, "/cwd") {
+		log.Printf("[handler] trace=%s user=%s branch=command name=/cwd", traceID, msg.FromUserID)
 		reply := h.handleCwd(trimmed)
 		if err := SendTextReply(ctx, client, msg.FromUserID, reply, msg.ContextToken, clientID); err != nil {
 			log.Printf("[handler] failed to send reply to %s: %v", msg.FromUserID, err)
@@ -351,83 +428,64 @@ func (h *Handler) HandleMessage(ctx context.Context, client *ilink.Client, msg i
 		return
 	}
 
-	// Route: "/agentname message" or "@agent1 @agent2 message" -> specific agent(s)
+	// Route: runtime-only mode ignores agent switching/broadcast commands and treats them as normal text.
 	agentNames, message := h.parseCommand(text)
-
-	// No command prefix -> send to default agent
-	if len(agentNames) == 0 {
-		h.sendToDefaultAgent(ctx, client, msg, text, clientID)
-		return
-	}
-
-	// No message -> switch default agent (only first name)
-	if message == "" {
-		if len(agentNames) == 1 && h.isKnownAgent(agentNames[0]) {
+	if len(agentNames) > 0 {
+		log.Printf("[handler] trace=%s user=%s route=runtime-only ignored_agent_command raw=%q", traceID, msg.FromUserID, truncate(text, 80))
+		if len(agentNames) == 1 && message == "" && agentNames[0] == h.runtimeName {
 			reply := h.switchDefault(ctx, agentNames[0])
 			if err := SendTextReply(ctx, client, msg.FromUserID, reply, msg.ContextToken, clientID); err != nil {
 				log.Printf("[handler] failed to send reply to %s: %v", msg.FromUserID, err)
 			}
-		} else if len(agentNames) == 1 && !h.isKnownAgent(agentNames[0]) {
-			// Unknown agent -> forward to default
-			h.sendToDefaultAgent(ctx, client, msg, text, clientID)
-		} else {
-			reply := "Usage: specify one agent to switch, or add a message to broadcast"
-			if err := SendTextReply(ctx, client, msg.FromUserID, reply, msg.ContextToken, clientID); err != nil {
-				log.Printf("[handler] failed to send reply to %s: %v", msg.FromUserID, err)
-			}
-		}
-		return
-	}
-
-	// Filter to known agents; if single unknown agent -> forward to default
-	var knownNames []string
-	for _, name := range agentNames {
-		if h.isKnownAgent(name) {
-			knownNames = append(knownNames, name)
+			return
 		}
 	}
-	if len(knownNames) == 0 {
-		// No known agents -> forward entire text to default agent
-		h.sendToDefaultAgent(ctx, client, msg, text, clientID)
-		return
-	}
 
-	// Send typing indicator
-	go func() {
-		if typingErr := SendTypingState(ctx, client, msg.FromUserID, msg.ContextToken); typingErr != nil {
-			log.Printf("[handler] failed to send typing state: %v", typingErr)
-		}
-	}()
-
-	if len(knownNames) == 1 {
-		// Single agent
-		h.sendToNamedAgent(ctx, client, msg, knownNames[0], message, clientID)
-	} else {
-		// Multi-agent broadcast: parallel dispatch, send replies as they arrive
-		h.broadcastToAgents(ctx, client, msg, knownNames, message)
-	}
+	h.sendToDefaultAgent(ctx, client, msg, text, clientID)
 }
 
 // sendToDefaultAgent sends the message to the default agent and replies.
 func (h *Handler) sendToDefaultAgent(ctx context.Context, client *ilink.Client, msg ilink.WeixinMessage, text, clientID string) {
+	traceID := shortTraceID(msg, clientID)
 	go func() {
 		if typingErr := SendTypingState(ctx, client, msg.FromUserID, msg.ContextToken); typingErr != nil {
-			log.Printf("[handler] failed to send typing state: %v", typingErr)
+			log.Printf("[handler] trace=%s user=%s stage=typing state=failed err=%v", traceID, msg.FromUserID, typingErr)
 		}
 	}()
 
 	h.mu.RLock()
 	defaultName := h.defaultName
+	defaultIsRuntime := defaultName == h.runtimeName
 	h.mu.RUnlock()
 
-	ag := h.getDefaultAgent()
 	var reply string
+	botID := client.BotID()
+	log.Printf("[handler] trace=%s bot=%s user=%s route=runtime default=%s input=%q", traceID, botID, msg.FromUserID, defaultName, truncate(text, 80))
+	if defaultIsRuntime {
+		var err error
+		reply, err = h.chatWithRuntime(ctx, botID, msg.FromUserID, text)
+		if err != nil {
+			reply = fmt.Sprintf("Error: %v", err)
+		}
+		h.sendReplyWithMedia(ctx, client, msg, defaultName, reply, clientID)
+		return
+	}
+
+	ag := h.getDefaultAgent()
 	if ag != nil {
 		var err error
 		reply, err = h.chatWithAgent(ctx, ag, msg.FromUserID, text)
 		if err != nil {
 			reply = fmt.Sprintf("Error: %v", err)
 		}
+	} else if h.runtimeSvc != nil {
+		log.Printf("[handler] default agent not ready, falling back to packaged runtime for bot=%s user=%s", botID, msg.FromUserID)
+		var err error
+		reply, err = h.chatWithRuntime(ctx, botID, msg.FromUserID, text)
+		if err != nil {
+			reply = fmt.Sprintf("Error: %v", err)
+		}
+		defaultName = h.runtimeName
 	} else {
 		log.Printf("[handler] agent not ready, using echo mode for %s", msg.FromUserID)
 		reply = "[echo] " + text
@@ -438,6 +496,15 @@ func (h *Handler) sendToDefaultAgent(ctx context.Context, client *ilink.Client, 
 
 // sendToNamedAgent sends the message to a specific agent and replies.
 func (h *Handler) sendToNamedAgent(ctx context.Context, client *ilink.Client, msg ilink.WeixinMessage, name, message, clientID string) {
+	if name == h.runtimeName {
+		reply, err := h.chatWithRuntime(ctx, client.BotID(), msg.FromUserID, message)
+		if err != nil {
+			reply = fmt.Sprintf("Error: %v", err)
+		}
+		h.sendReplyWithMedia(ctx, client, msg, name, reply, clientID)
+		return
+	}
+
 	ag, agErr := h.getAgent(ctx, name)
 	if agErr != nil {
 		log.Printf("[handler] agent %q not available: %v", name, agErr)
@@ -465,6 +532,16 @@ func (h *Handler) broadcastToAgents(ctx context.Context, client *ilink.Client, m
 
 	for _, name := range names {
 		go func(n string) {
+			if n == h.runtimeName {
+				reply, err := h.chatWithRuntime(ctx, client.BotID(), msg.FromUserID, message)
+				if err != nil {
+					ch <- result{name: n, reply: fmt.Sprintf("Error: %v", err)}
+					return
+				}
+				ch <- result{name: n, reply: reply}
+				return
+			}
+
 			ag, err := h.getAgent(ctx, n)
 			if err != nil {
 				ch <- result{name: n, reply: fmt.Sprintf("Error: %v", err)}
@@ -490,36 +567,68 @@ func (h *Handler) broadcastToAgents(ctx context.Context, client *ilink.Client, m
 
 // sendReplyWithMedia sends a text reply and any extracted image URLs.
 func (h *Handler) sendReplyWithMedia(ctx context.Context, client *ilink.Client, msg ilink.WeixinMessage, agentName, reply, clientID string) {
+	traceID := shortTraceID(msg, clientID)
 	imageURLs := ExtractImageURLs(reply)
+	materialDirectives := ExtractMaterialDirectives(reply)
 	attachmentPaths := extractLocalAttachmentPaths(reply)
 	allowedRoots := h.allowedAttachmentRoots(agentName)
+	visibleReply := StripMaterialDirectives(reply)
+
+	log.Printf("[handler] trace=%s user=%s stage=reply-prepare agent=%s text_chars=%d images=%d material_media=%d attachments=%d preview=%q", traceID, msg.FromUserID, agentName, len(visibleReply), len(imageURLs), len(materialDirectives), len(attachmentPaths), truncate(visibleReply, 100))
 
 	var sentPaths []string
 	var failedPaths []string
 	for _, attachmentPath := range attachmentPaths {
 		if !isAllowedAttachmentPath(attachmentPath, allowedRoots) {
-			log.Printf("[handler] rejected attachment outside allowed roots for agent %q: %s", agentName, attachmentPath)
+			log.Printf("[handler] trace=%s user=%s stage=attachment status=rejected agent=%q path=%s", traceID, msg.FromUserID, agentName, attachmentPath)
 			failedPaths = append(failedPaths, attachmentPath)
 			continue
 		}
 		if err := SendMediaFromPath(ctx, client, msg.FromUserID, attachmentPath, msg.ContextToken); err != nil {
-			log.Printf("[handler] failed to send attachment to %s: %v", msg.FromUserID, err)
+			log.Printf("[handler] trace=%s user=%s stage=attachment status=failed path=%s err=%v", traceID, msg.FromUserID, attachmentPath, err)
 			failedPaths = append(failedPaths, attachmentPath)
 			continue
 		}
+		log.Printf("[handler] trace=%s user=%s stage=attachment status=sent path=%s", traceID, msg.FromUserID, attachmentPath)
 		sentPaths = append(sentPaths, attachmentPath)
 	}
 
-	reply = rewriteReplyWithAttachmentResults(reply, sentPaths, failedPaths)
+	visibleReply = rewriteReplyWithAttachmentResults(visibleReply, sentPaths, failedPaths)
 
-	if err := SendTextReply(ctx, client, msg.FromUserID, reply, msg.ContextToken, clientID); err != nil {
-		log.Printf("[handler] failed to send reply to %s: %v", msg.FromUserID, err)
+	if err := SendTextReply(ctx, client, msg.FromUserID, visibleReply, msg.ContextToken, clientID); err != nil {
+		log.Printf("[handler] trace=%s user=%s stage=reply-send status=failed err=%v", traceID, msg.FromUserID, err)
+	} else {
+		log.Printf("[handler] trace=%s user=%s stage=reply-send status=sent", traceID, msg.FromUserID)
 	}
 
 	for _, imgURL := range imageURLs {
 		if err := SendMediaFromURL(ctx, client, msg.FromUserID, imgURL, msg.ContextToken); err != nil {
-			log.Printf("[handler] failed to send image to %s: %v", msg.FromUserID, err)
+			log.Printf("[handler] trace=%s user=%s stage=image status=failed url=%s err=%v", traceID, msg.FromUserID, imgURL, err)
+			log.Printf("[materials] bot=%s user=%s 图片素材发送失败：url=%s err=%v", client.BotID(), msg.FromUserID, imgURL, err)
+			continue
 		}
+		log.Printf("[handler] trace=%s user=%s stage=image status=sent url=%s", traceID, msg.FromUserID, imgURL)
+		log.Printf("[materials] bot=%s user=%s 图片素材已发送：url=%s", client.BotID(), msg.FromUserID, imgURL)
+	}
+
+	for _, directive := range materialDirectives {
+		if h.materialsSvc == nil {
+			log.Printf("[materials] bot=%s user=%s 素材发送失败：素材=%q 类型=%s err=materials service not configured", client.BotID(), msg.FromUserID, directive.Title, directive.Kind)
+			continue
+		}
+		item, mediaPath, err := h.materialsSvc.FindMediaPathByID(directive.ID)
+		if err != nil {
+			log.Printf("[materials] bot=%s user=%s 素材发送失败：素材=%q 类型=%s id=%s err=%v", client.BotID(), msg.FromUserID, directive.Title, directive.Kind, directive.ID, err)
+			continue
+		}
+		mediaCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		if err := SendMediaFromPath(mediaCtx, client, msg.FromUserID, mediaPath, msg.ContextToken); err != nil {
+			cancel()
+			log.Printf("[materials] bot=%s user=%s 素材发送失败：素材=%q 类型=%s id=%s path=%s err=%v", client.BotID(), msg.FromUserID, item.Title, item.Kind, item.ID, mediaPath, err)
+			continue
+		}
+		cancel()
+		log.Printf("[materials] bot=%s user=%s 素材已发送：素材=%q 类型=%s id=%s path=%s", client.BotID(), msg.FromUserID, item.Title, item.Kind, item.ID, mediaPath)
 	}
 }
 
@@ -540,24 +649,200 @@ func (h *Handler) allowedAttachmentRoots(agentName string) []string {
 // chatWithAgent sends a message to an agent and returns the reply, with logging.
 func (h *Handler) chatWithAgent(ctx context.Context, ag agent.Agent, userID, message string) (string, error) {
 	info := ag.Info()
-	log.Printf("[handler] dispatching to agent (%s) for %s", info, userID)
+	log.Printf("[handler] user=%s route=agent state=start agent=%s model=%s input=%q", userID, info.Name, info.Model, truncate(message, 80))
 
 	start := time.Now()
 	reply, err := ag.Chat(ctx, userID, message)
 	elapsed := time.Since(start)
 
 	if err != nil {
-		log.Printf("[handler] agent error (%s, elapsed=%s): %v", info, elapsed, err)
+		log.Printf("[handler] user=%s route=agent state=failed agent=%s model=%s elapsed=%s err=%v", userID, info.Name, info.Model, elapsed, err)
 		return "", err
 	}
 
-	log.Printf("[handler] agent replied (%s, elapsed=%s): %q", info, elapsed, truncate(reply, 100))
+	log.Printf("[handler] user=%s route=agent state=finished agent=%s model=%s elapsed=%s preview=%q", userID, info.Name, info.Model, elapsed, truncate(reply, 100))
 	return reply, nil
 }
 
-// switchDefault switches the default agent. Starts it on demand if needed.
-// The change is persisted to config file.
+func (h *Handler) chatWithRuntime(ctx context.Context, botID, userID, message string) (string, error) {
+	if h.runtimeSvc == nil {
+		return "", fmt.Errorf("runtime not configured")
+	}
+
+	memoryContext := ""
+	if h.memorySvc != nil {
+		memoryState := h.memorySvc.CollectRuntimeContext(botID)
+		memoryContext = memoryState.LoadedContext
+		if memoryContext == "" {
+			log.Printf("[memory] bot=%s user=%s 当前没有可加载记忆", botID, userID)
+		} else {
+			log.Printf("[memory] bot=%s user=%s 已加载记忆上下文：长期画像 %d 条，短期记忆 %d 条，上下文 %d 字，预览=%q", botID, userID, memoryState.Result.LoadedProfiles, memoryState.Result.LoadedShortTerm, len(memoryContext), truncate(memoryContext, 120))
+		}
+	}
+
+	materialsContext := ""
+	materialsKeywords := []string(nil)
+	materialsMatches := []materials.MaterialMatch(nil)
+	if h.materialsSvc != nil {
+		searchResult, err := h.materialsSvc.SearchForMessage(message, 5)
+		if err != nil {
+			log.Printf("[materials] bot=%s user=%s 素材检索失败：err=%v", botID, userID, err)
+		} else {
+			materialsKeywords = searchResult.Keywords
+			materialsMatches = searchResult.Matches
+			materialsContext = h.materialsSvc.BuildRuntimeContext(searchResult)
+			if len(searchResult.Matches) == 0 {
+				if len(searchResult.Keywords) == 0 {
+					log.Printf("[materials] bot=%s user=%s 当前没有提取到素材关键词", botID, userID)
+				} else {
+					log.Printf("[materials] bot=%s user=%s 当前没有命中可用素材，关键词=%q", botID, userID, strings.Join(searchResult.Keywords, ", "))
+				}
+			} else {
+				log.Printf("[materials] bot=%s user=%s 已命中素材候选 %d 条，关键词=%q", botID, userID, len(searchResult.Matches), strings.Join(searchResult.Keywords, ", "))
+				for _, match := range searchResult.Matches {
+					log.Printf("[materials] bot=%s user=%s 候选素材=%q 类型=%s 分数=%d 命中原因=%s", botID, userID, match.Material.Title, match.Material.Kind, match.Score, formatMaterialReasonsForLog(match.Reasons))
+				}
+			}
+		}
+	}
+
+	runtimeContext := joinRuntimeContexts(memoryContext, materialsContext)
+	start := time.Now()
+	log.Printf("[handler] bot=%s user=%s route=runtime state=start input=%q memory_chars=%d materials_chars=%d", botID, userID, truncate(message, 80), len(memoryContext), len(materialsContext))
+	reply, err := h.runtimeSvc.Reply(ctx, userID, message, runtimeContext)
+	elapsed := time.Since(start)
+	if err != nil {
+		log.Printf("[handler] bot=%s user=%s route=runtime state=failed elapsed=%s err=%v", botID, userID, elapsed, err)
+		return "", err
+	}
+
+	materialDirectives := ExtractMaterialDirectives(reply)
+	imageURLs := ExtractImageURLs(reply)
+	if h.materialsSvc != nil && len(materialDirectives) == 0 && len(imageURLs) == 0 {
+		replyIntentResult, err := h.materialsSvc.SearchForReplyIntent(StripMaterialDirectives(reply), 1)
+		if err != nil {
+			log.Printf("[materials] bot=%s user=%s reply-intent 检索失败：err=%v", botID, userID, err)
+		} else if len(replyIntentResult.Keywords) > 0 {
+			log.Printf("[materials] bot=%s user=%s reply-intent keywords=%q", botID, userID, strings.Join(replyIntentResult.Keywords, ", "))
+			if len(replyIntentResult.Matches) == 0 {
+				log.Printf("[materials] bot=%s user=%s reply-intent 当前没有命中可追加素材", botID, userID)
+			} else {
+				match := replyIntentResult.Matches[0]
+				log.Printf("[materials] bot=%s user=%s reply-intent 命中候选素材=%q 类型=%s 分数=%d 命中原因=%s", botID, userID, match.Material.Title, match.Material.Kind, match.Score, formatMaterialReasonsForLog(match.Reasons))
+				reply = strings.TrimSpace(reply) + "\n[[material:id=" + match.Material.ID + ";kind=" + string(match.Material.Kind) + ";title=" + match.Material.Title + "]]"
+				materialDirectives = ExtractMaterialDirectives(reply)
+				log.Printf("[materials] bot=%s user=%s reply-intent 已追加素材指令：素材=%q 类型=%s id=%s", botID, userID, match.Material.Title, match.Material.Kind, match.Material.ID)
+			}
+		}
+	}
+
+	if len(materialsMatches) > 0 {
+		if len(materialDirectives) == 0 && len(imageURLs) == 0 {
+			log.Printf("[materials] bot=%s user=%s 本轮未采用素材候选", botID, userID)
+		} else {
+			for _, imageURL := range imageURLs {
+				log.Printf("[materials] bot=%s user=%s 识别到图片素材使用意图：url=%s", botID, userID, imageURL)
+			}
+			for _, directive := range materialDirectives {
+				log.Printf("[materials] bot=%s user=%s 识别到素材使用意图：素材=%q 类型=%s id=%s", botID, userID, directive.Title, directive.Kind, directive.ID)
+			}
+		}
+	} else if len(materialsKeywords) > 0 {
+		log.Printf("[materials] bot=%s user=%s 本轮素材关键词=%q，但无候选可供使用", botID, userID, strings.Join(materialsKeywords, ", "))
+	}
+
+	if h.memorySvc != nil {
+		memoryResult := h.memorySvc.RecordRuntimeTurn(botID, userID, userID, message, StripMaterialDirectives(reply))
+		if memoryResult.ShortTermRecorded {
+			log.Printf("[memory] bot=%s user=%s 已写入短期记忆：%s", botID, userID, truncate(memoryResult.ShortTermSummary, 120))
+		} else {
+			log.Printf("[memory] bot=%s user=%s 本轮短期记忆写入失败，已跳过", botID, userID)
+		}
+		if len(memoryResult.Profiles) == 0 {
+			log.Printf("[memory] bot=%s user=%s 未识别到可写入长期画像的稳定表达，原话=%q", botID, userID, truncate(message, 80))
+		} else {
+			for _, action := range memoryResult.Profiles {
+				actionText := "已写入长期用户画像"
+				if action.Action == "updated" {
+					actionText = "已更新长期用户画像"
+				}
+				log.Printf("[memory] bot=%s user=%s 识别到长期记忆意图：触发词=%q，分类=%s，内容=%q；%s", botID, userID, action.Trigger, action.Category, action.Content, actionText)
+			}
+			reply = appendMemoryConfirmation(reply, memoryResult.Profiles)
+		}
+	}
+
+	log.Printf("[handler] bot=%s user=%s route=runtime state=finished elapsed=%s preview=%q", botID, userID, elapsed, truncate(StripMaterialDirectives(reply), 100))
+	return reply, nil
+}
+
+func appendMemoryConfirmation(reply string, actions []memory.MemoryProfileAction) string {
+	if len(actions) == 0 {
+		return reply
+	}
+	confirmation := strings.TrimSpace(actions[0].ConfirmationText())
+	if confirmation == "" || strings.Contains(reply, confirmation) {
+		return reply
+	}
+	if strings.TrimSpace(reply) == "" {
+		return confirmation
+	}
+	return strings.TrimSpace(reply) + "\n\n" + confirmation
+}
+
+func joinRuntimeContexts(parts ...string) string {
+	clean := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		clean = append(clean, part)
+	}
+	return strings.Join(clean, "\n\n")
+}
+
+func formatMaterialReasonsForLog(reasons []materials.MatchReason) string {
+	if len(reasons) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(reasons))
+	for _, reason := range reasons {
+		label := string(reason.Source)
+		switch reason.Source {
+		case materials.MatchSourceTag:
+			label = "标签"
+		case materials.MatchSourceTitle:
+			label = "标题"
+		case materials.MatchSourceDescription:
+			label = "用途说明"
+		case materials.MatchSourceContent:
+			label = "正文"
+		}
+		parts = append(parts, fmt.Sprintf("%s命中%q", label, reason.Keyword))
+	}
+	return strings.Join(parts, "；")
+}
+
 func (h *Handler) switchDefault(ctx context.Context, name string) string {
+	if name == h.runtimeName {
+		h.mu.Lock()
+		old := h.defaultName
+		h.defaultName = name
+		h.mu.Unlock()
+
+		if h.saveDefault != nil {
+			if err := h.saveDefault(name); err != nil {
+				log.Printf("[handler] failed to save default agent to config: %v", err)
+			} else {
+				log.Printf("[handler] saved default runtime %q to config", name)
+			}
+		}
+
+		log.Printf("[handler] switched default agent: %s -> %s (packaged runtime)", old, name)
+		return fmt.Sprintf("switch to %s", name)
+	}
+
 	ag, err := h.getAgent(ctx, name)
 	if err != nil {
 		log.Printf("[handler] failed to switch default to %q: %v", name, err)
@@ -570,7 +855,6 @@ func (h *Handler) switchDefault(ctx context.Context, name string) string {
 	h.agents[name] = ag
 	h.mu.Unlock()
 
-	// Persist to config file
 	if h.saveDefault != nil {
 		if err := h.saveDefault(name); err != nil {
 			log.Printf("[handler] failed to save default agent to config: %v", err)
@@ -586,8 +870,35 @@ func (h *Handler) switchDefault(ctx context.Context, name string) string {
 
 // resetDefaultSession resets the session for the given userID on the default agent.
 func (h *Handler) resetDefaultSession(ctx context.Context, userID string) string {
+	h.mu.RLock()
+	defaultName := h.defaultName
+	defaultIsRuntime := defaultName == h.runtimeName
+	h.mu.RUnlock()
+
+	if defaultIsRuntime {
+		if h.runtimeSvc == nil {
+			return "Runtime not configured."
+		}
+		h.runtimeSvc.ResetConversation(userID)
+		if h.memorySvc != nil {
+			if err := h.memorySvc.ClearShortTerm(userID); err != nil {
+				log.Printf("[memory] clear short-term failed user=%s err=%v", userID, err)
+			}
+		}
+		return fmt.Sprintf("已创建新的%s会话", defaultName)
+	}
+
 	ag := h.getDefaultAgent()
 	if ag == nil {
+		if h.runtimeSvc != nil {
+			h.runtimeSvc.ResetConversation(userID)
+			if h.memorySvc != nil {
+				if err := h.memorySvc.ClearShortTerm(userID); err != nil {
+					log.Printf("[memory] clear short-term failed user=%s err=%v", userID, err)
+				}
+			}
+			return fmt.Sprintf("已创建新的%s会话", h.runtimeName)
+		}
 		return "No agent running."
 	}
 	name := ag.Info().Name
@@ -671,7 +982,14 @@ func (h *Handler) buildStatus() string {
 	defer h.mu.RUnlock()
 
 	if h.defaultName == "" {
+		if h.runtimeSvc != nil {
+			return fmt.Sprintf("agent: %s\ntype: runtime\nmodel: %s", h.runtimeName, "configured by provider")
+		}
 		return "agent: none (echo mode)"
+	}
+
+	if h.defaultName == h.runtimeName {
+		return fmt.Sprintf("agent: %s\ntype: runtime\nmodel: %s", h.defaultName, "configured by provider")
 	}
 
 	ag, ok := h.agents[h.defaultName]
@@ -685,15 +1003,12 @@ func (h *Handler) buildStatus() string {
 
 func buildHelpText() string {
 	return `Available commands:
-@agent or /agent - Switch default agent
-@agent msg or /agent msg - Send to a specific agent
-@a @b msg - Broadcast to multiple agents
 /new or /clear - Start a new session
-/cwd /path - Switch workspace directory
-/info - Show current agent info
+/cwd /path - Show or switch workspace directory
+/info - Show current runtime info
 /help - Show this help message
 
-Aliases: /cc(claude) /cx(codex) /cs(cursor) /km(kimi) /gm(gemini) /oc(openclaw) /ocd(opencode) /pi(pi) /cp(copilot) /dr(droid) /if(iflow) /kr(kiro) /qw(qwen)`
+Runtime-only mode is enabled. Agent switching and broadcast commands are disabled.`
 }
 
 func extractText(msg ilink.WeixinMessage) string {

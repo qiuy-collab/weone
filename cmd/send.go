@@ -6,8 +6,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/fastclaw-ai/weclaw/ilink"
-	"github.com/fastclaw-ai/weclaw/messaging"
+	"github.com/qiuy-collab/weone/ilink"
+	"github.com/qiuy-collab/weone/messaging"
 	"github.com/spf13/cobra"
 )
 
@@ -28,9 +28,9 @@ func init() {
 var sendCmd = &cobra.Command{
 	Use:   "send",
 	Short: "Send a message to a WeChat user",
-	Example: `  weclaw send --to "user_id@im.wechat" --text "Hello"
-  weclaw send --to "user_id@im.wechat" --media "https://example.com/image.png"
-  weclaw send --to "user_id@im.wechat" --text "See this" --media "https://example.com/image.png"`,
+	Example: `  weone send --to "user_id@im.wechat" --text "Hello"
+  weone send --to "user_id@im.wechat" --media "https://example.com/image.png"
+  weone send --to "user_id@im.wechat" --text "See this" --media "https://example.com/image.png"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if sendText == "" && sendMediaURL == "" {
 			return fmt.Errorf("at least one of --text or --media is required")
@@ -44,7 +44,7 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("load credentials: %w", err)
 		}
 		if len(accounts) == 0 {
-			return fmt.Errorf("no accounts found, run 'weclaw start' first")
+			return fmt.Errorf("no accounts found, run 'weone start' first")
 		}
 
 		client := ilink.NewClient(accounts[0])

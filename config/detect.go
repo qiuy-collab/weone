@@ -153,8 +153,18 @@ func DetectAndConfigure(cfg *Config) bool {
 		}
 	}
 
-	// Pick the highest-priority default agent.
-	if cfg.DefaultAgent == "" || !agentExists(cfg, cfg.DefaultAgent) {
+	// Pick the default reply engine.
+	if cfg.Runtime.Enabled {
+		runtimeName := cfg.Runtime.Name
+		if runtimeName == "" {
+			runtimeName = "companion"
+		}
+		if cfg.DefaultAgent != runtimeName {
+			log.Printf("[config] setting default agent to packaged runtime: %s", runtimeName)
+			cfg.DefaultAgent = runtimeName
+			modified = true
+		}
+	} else if cfg.DefaultAgent == "" || !agentExists(cfg, cfg.DefaultAgent) {
 		for _, name := range defaultOrder {
 			if _, ok := cfg.Agents[name]; ok {
 				if cfg.DefaultAgent != name {
