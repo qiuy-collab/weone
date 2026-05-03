@@ -70,7 +70,7 @@ http://127.0.0.1:18011
 模型 API、陪伴人设和基础运行参数都在这里配置。
 
 <p align="center">
-  <img src="previews/模型配置，人格.png" width="900" />
+  <img src="previews/model-config-persona.png" width="900" />
 </p>
 
 这里通常会配置：
@@ -88,7 +88,7 @@ http://127.0.0.1:18011
 微信绑定区负责新账号绑定、二维码状态查看和绑定状态确认。
 
 <p align="center">
-  <img src="previews/微信绑定.png" width="900" />
+  <img src="previews/wechat-binding.png" width="900" />
 </p>
 
 适合用来：
@@ -102,7 +102,7 @@ http://127.0.0.1:18011
 记忆区可以查看长期画像文档和最近几轮短期会话记忆。
 
 <p align="center">
-  <img src="previews/记忆.png" width="900" />
+  <img src="previews/memory.png" width="900" />
 </p>
 
 当前这部分支持：
@@ -117,7 +117,7 @@ http://127.0.0.1:18011
 素材后台用于导入、分析、维护和预览素材。
 
 <p align="center">
-  <img src="previews/素材库.png" width="900" />
+  <img src="previews/materials-library.png" width="900" />
 </p>
 
 当前支持上传的素材类型包括：
@@ -141,7 +141,7 @@ http://127.0.0.1:18011
 主动触达模块负责配置和管理真正的主动行为。
 
 <p align="center">
-  <img src="previews/cron.png" width="900" />
+  <img src="previews/proactive-cron.png" width="900" />
 </p>
 
 当前 cron / 主动任务分成三类：
