@@ -10,6 +10,15 @@
 
 ## Quick Start
 
+### 素材实例展示
+
+先看两个最直观的效果图：一个是素材匹配后的聊天发送效果，一个是沉默唤醒的主动聊天效果。
+
+<p align="center">
+  <img src="previews/materials-send-chat.jpg" width="360" />
+  <img src="previews/silence-wakeup-chat.jpg" width="360" />
+</p>
+
 ### 1) 安装
 
 ```bash
@@ -122,58 +131,50 @@ http://127.0.0.1:18011
 
 ### 控制台首页
 
-模型配置、人设配置、状态查看都在这里开始。
+这是主控制台首页，用来完成模型配置、人设设置、状态查看和主要功能入口管理。
 
 <p align="center">
-  <img src="previews/屏幕截图 2026-05-03 124806.png" width="900" />
+  <img src="previews/console-overview.png" width="900" />
 </p>
 
 ### 主动触达策略
 
-全局 Bot 选择、沉默唤醒、事件提醒、定时问候都在这里配置。
+这张图对应主动触达的策略层，主要配置全局 Bot、沉默唤醒、事件提醒和定时问候。
 
 <p align="center">
-  <img src="previews/屏幕截图 2026-05-03 124824.png" width="900" />
+  <img src="previews/proactive-strategy.png" width="900" />
 </p>
 
 ### 主动任务列表
 
-查看 AI 创建的提醒任务、循环任务、失败任务和已完成任务。
+这张图对应主动任务看板，用来查看 AI 创建的提醒任务、循环任务、失败任务和已完成任务。
 
 <p align="center">
-  <img src="previews/屏幕截图 2026-05-03 124911.png" width="900" />
+  <img src="previews/proactive-task-board.png" width="900" />
 </p>
 
 ### 任务编辑面板
 
-支持手动创建和修改定时问候 / 事件提醒任务。
+这张图对应主动任务编辑区，支持手动创建和修改定时问候 / 事件提醒任务。
 
 <p align="center">
-  <img src="previews/屏幕截图 2026-05-03 124923.png" width="900" />
+  <img src="previews/proactive-task-editor.png" width="900" />
 </p>
 
 ### 素材管理
 
-导入素材、做 AI 分析、编辑标签和描述。
+这张图对应素材管理后台，用来导入素材、做 AI 分析、维护标签和描述。
 
 <p align="center">
-  <img src="previews/屏幕截图 2026-05-03 124936.png" width="900" />
+  <img src="previews/materials-library.png" width="900" />
 </p>
 
-### 素材发送效果
+### 微信绑定与记忆模块
 
-素材不是简单关键词触发，而是按 AI 回复意图匹配后发送。
-
-<p align="center">
-  <img src="previews/素材发送.jpg" width="720" />
-</p>
-
-### 沉默唤醒效果
-
-用户沉默到达阈值后，由 AI 决定是否主动发起一条自然的消息。
+这张图对应微信绑定流程和记忆模块区域，用来查看二维码绑定状态、长期画像和最近短期记忆。
 
 <p align="center">
-  <img src="previews/沉默唤醒.jpg" width="720" />
+  <img src="previews/bind-and-memory.png" width="900" />
 </p>
 
 ---
@@ -345,27 +346,6 @@ go build ./...
 
 ---
 
-## Development
-
-推荐开发流程：
-
-```bash
-cd weone/weclaw
-go test ./...
-go build ./...
-go run . start
-```
-
-如果你在改：
-
-- 主动触达 -> `proactive/`
-- Web 控制台 -> `api/static/index.html`
-- 消息链路 -> `messaging/`
-- 记忆系统 -> `memory/`
-- 素材系统 -> `materials/`
-
----
-
 ## Data & logs
 
 常见本地数据：
@@ -374,36 +354,6 @@ go run . start
 - 日志文件：`~/.weone/weone.log`
 - 账号数据：`~/.weone/accounts/`
 - 主动任务数据：`~/.weone/` 下相关持久化文件
-
----
-
-## Test checklist
-
-建议第一版至少测这几类：
-
-### 对话链路
-
-- 文本正常回复
-- 人设生效
-- 多轮上下文生效
-
-### 记忆链路
-
-- 短期记忆写入
-- 稳定表达进入长期画像
-
-### 素材链路
-
-- 图片导入
-- AI 分析后语义匹配
-- 回复意图触发素材发送
-
-### 主动触达链路
-
-- 定时问候手动创建与执行
-- 沉默唤醒到阈值后只判断一次
-- 事件提醒创建一次性任务
-- 长期提醒生成 recurring cron
 
 ---
 
