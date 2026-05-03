@@ -9,11 +9,11 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
-	"github.com/qiuy-collab/weone/agent"
 	"github.com/qiuy-collab/weone/api"
 	"github.com/qiuy-collab/weone/config"
 	"github.com/qiuy-collab/weone/ilink"
@@ -55,7 +55,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 		if reachable, err := apiServerReachable(apiAddr); err == nil && reachable {
 			return fmt.Errorf("weone appears to already be running at http://%s, but the pid file is missing; stop the existing process first", apiAddr)
 		}
-		// Start the web service even with zero accounts; users can bind later from the control panel.
 		return runDaemon(apiAddr)
 	}
 
@@ -73,28 +72,25 @@ func runStart(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Load all accounts
 	accounts, err := ilink.LoadAllCredentials()
 	if err != nil {
 		return fmt.Errorf("failed to load credentials: %w", err)
 	}
 
-	// Load config
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	log.Printf("[start] loaded config runtime_enabled=%v runtime_name=%q", cfg.Runtime.Enabled, cfg.Runtime.Name)
 
-	// Create handler with an agent factory for on-demand agent creation
 	runtimeName := cfg.Runtime.Name
 	if runtimeName == "" {
 		runtimeName = "companion"
 	}
 	cfg.Runtime.Name = runtimeName
-	cfg.Runtime.Enabled = true
-	cfg.DefaultAgent = runtimeName
-	cfg.Agents = map[string]config.AgentConfig{}
+	if !cfg.Runtime.Enabled {
+		return fmt.Errorf("runtime is disabled; enable it in config or set WEONE_RUNTIME_ENABLED=1")
+	}
 
 	var runtimeSvc *internalruntime.Service
 	if cfg.Runtime.Enabled {
@@ -114,32 +110,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	proactiveScheduler := proactive.NewScheduler(proactiveSvc)
 	proactiveSvc.SetScheduler(proactiveScheduler)
 
-	handler := messaging.NewHandler(
-		nil,
-		func(name string) error {
-			cfg.DefaultAgent = runtimeName
-			return config.Save(cfg)
-		},
-		runtimeName,
-		runtimeSvc,
-		memorySvc,
-		materialsSvc,
-	)
-
-	// Populate agent metas for /status
-	var metas []messaging.AgentMeta
-	metas = append(metas, messaging.AgentMeta{
-		Name:    runtimeName,
-		Type:    "runtime",
-		Command: cfg.Runtime.Provider.Endpoint,
-		Model:   cfg.Runtime.Provider.Model,
-	})
-	workDirs := make(map[string]string)
-	handler.SetAgentMetas(metas)
-	handler.SetAgentWorkDirs(workDirs)
-
-	// Runtime-only mode: disable custom aliases for external agents
-	handler.SetCustomAliases(nil)
+	handler := messaging.NewHandler(runtimeName, runtimeSvc, memorySvc, materialsSvc)
 	handler.SetInboundRecorder(func(botID, userID string, at time.Time) {
 		if err := proactiveSvc.RecordInbound(botID, userID, at); err != nil {
 			log.Printf("[proactive] record inbound failed bot=%s user=%s err=%v", botID, userID, err)
@@ -149,35 +120,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 		proactiveSvc.ProcessConversationDecision(ctx, botID, userID, message, reply, memoryContext)
 	})
 
-	// Set save directory for images/files if configured
 	if cfg.SaveDir != "" {
 		handler.SetSaveDir(cfg.SaveDir)
 		log.Printf("Image save directory: %s", cfg.SaveDir)
 	}
 
-	// Start default reply engine initialization in background so monitors can start immediately
-	go func() {
-		if cfg.Runtime.Enabled {
-			cfg.DefaultAgent = runtimeName
-			log.Printf("Using packaged runtime %q as default", runtimeName)
-			return
-		}
+	log.Printf("Using packaged runtime %q as default", runtimeName)
 
-		if cfg.DefaultAgent == "" {
-			log.Println("No default agent configured, staying in echo mode")
-			return
-		}
-
-		log.Printf("Initializing default agent %q in background...", cfg.DefaultAgent)
-		ag := createAgentByName(ctx, cfg, cfg.DefaultAgent)
-		if ag == nil {
-			log.Printf("Failed to initialize default agent %q, staying in echo mode", cfg.DefaultAgent)
-			return
-		}
-		handler.SetDefaultAgent(cfg.DefaultAgent, ag)
-	}()
-
-	// Start HTTP API server for sending messages
 	accountManager.SetMonitorStarter(func(creds *ilink.Credentials) {
 		if creds == nil {
 			return
@@ -192,14 +141,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 	for _, creds := range accounts {
 		accountManager.AddCredentials(creds)
 	}
-	// Resolve API addr: flag > env/config > default
+
 	apiAddr = resolveAPIAddr(cfg.APIAddr)
 	apiServer := api.NewServer(accountManager, handler, memorySvc, materialsSvc, proactiveSvc, apiAddr, cfg, config.Save, func() string {
 		snapshot := handler.StatusSnapshot()
-		if snapshot.DefaultAgent == "" {
-			return ""
-		}
-		return snapshot.DefaultAgent
+		return snapshot.RuntimeName
 	})
 	go func() {
 		if err := apiServer.Run(ctx); err != nil {
@@ -213,7 +159,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 		log.Printf("[proactive] scheduler started")
 	}
 
-	// Start monitors immediately — they will use runtime-only routing
 	log.Printf("[start] starting message bridge account_count=%d api_addr=%s runtime=%s", len(accounts), apiAddr, runtimeName)
 
 	<-ctx.Done()
@@ -221,7 +166,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// runMonitorWithRestart runs a monitor with automatic restart on failure.
 func runMonitorWithRestart(ctx context.Context, creds *ilink.Credentials, handler *messaging.Handler) {
 	const maxRestartDelay = 30 * time.Second
 	restartDelay := 3 * time.Second
@@ -237,7 +181,6 @@ func runMonitorWithRestart(ctx context.Context, creds *ilink.Credentials, handle
 			err = monitor.Run(ctx)
 		}
 
-		// If context is cancelled, exit
 		if ctx.Err() != nil {
 			return
 		}
@@ -249,7 +192,6 @@ func runMonitorWithRestart(ctx context.Context, creds *ilink.Credentials, handle
 			return
 		}
 
-		// Exponential backoff for restarts, capped
 		restartDelay *= 2
 		if restartDelay > maxRestartDelay {
 			restartDelay = maxRestartDelay
@@ -257,65 +199,6 @@ func runMonitorWithRestart(ctx context.Context, creds *ilink.Credentials, handle
 	}
 }
 
-// createAgentByName creates and starts an agent by its config name.
-// Returns nil if the agent is not configured or fails to start.
-func createAgentByName(ctx context.Context, cfg *config.Config, name string) agent.Agent {
-	agCfg, ok := cfg.Agents[name]
-	if !ok {
-		log.Printf("[agent] %q not found in config", name)
-		return nil
-	}
-
-	switch agCfg.Type {
-	case "acp":
-		ag := agent.NewACPAgent(agent.ACPAgentConfig{
-			Command:      agCfg.Command,
-			Args:         agCfg.Args,
-			Cwd:          agCfg.Cwd,
-			Env:          agCfg.Env,
-			Model:        agCfg.Model,
-			SystemPrompt: agCfg.SystemPrompt,
-		})
-		if err := ag.Start(ctx); err != nil {
-			log.Printf("[agent] failed to start ACP agent %q: %v", name, err)
-			return nil
-		}
-		log.Printf("[agent] started ACP agent: %s (command=%s, type=%s, model=%s)", name, agCfg.Command, agCfg.Type, agCfg.Model)
-		return ag
-	case "cli":
-		ag := agent.NewCLIAgent(agent.CLIAgentConfig{
-			Name:         name,
-			Command:      agCfg.Command,
-			Args:         agCfg.Args,
-			Cwd:          agCfg.Cwd,
-			Env:          agCfg.Env,
-			Model:        agCfg.Model,
-			SystemPrompt: agCfg.SystemPrompt,
-		})
-		log.Printf("[agent] created CLI agent: %s (command=%s, type=%s, model=%s)", name, agCfg.Command, agCfg.Type, agCfg.Model)
-		return ag
-	case "http":
-		if agCfg.Endpoint == "" {
-			log.Printf("[agent] HTTP agent %q has no endpoint", name)
-			return nil
-		}
-		ag := agent.NewHTTPAgent(agent.HTTPAgentConfig{
-			Endpoint:     agCfg.Endpoint,
-			APIKey:       agCfg.APIKey,
-			Headers:      agCfg.Headers,
-			Model:        agCfg.Model,
-			SystemPrompt: agCfg.SystemPrompt,
-			MaxHistory:   agCfg.MaxHistory,
-		})
-		log.Printf("[agent] created HTTP agent: %s (endpoint=%s, model=%s)", name, agCfg.Endpoint, agCfg.Model)
-		return ag
-	default:
-		log.Printf("[agent] unknown type %q for %q", agCfg.Type, name)
-		return nil
-	}
-}
-
-// doLogin runs the interactive QR login flow and returns credentials.
 func doLogin(ctx context.Context) (*ilink.Credentials, error) {
 	fmt.Println("Fetching QR code...")
 	qr, err := ilink.FetchQRCode(ctx)
@@ -366,8 +249,6 @@ func doLogin(ctx context.Context) (*ilink.Credentials, error) {
 	return creds, nil
 }
 
-// --- Daemon mode ---
-
 func weoneDir() string {
 	root, err := config.StateDir()
 	if err == nil {
@@ -397,20 +278,16 @@ func preferredLogFile() string {
 	return stateFile("weone.log")
 }
 
-// runDaemon spawns weone start (without --daemon) as a background process.
 func runDaemon(apiAddr string) error {
-	// Ensure log directory exists
 	if err := os.MkdirAll(weoneDir(), 0o700); err != nil {
 		return fmt.Errorf("create weone dir: %w", err)
 	}
 
-	// Open log file
 	lf, err := os.OpenFile(preferredLogFile(), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return fmt.Errorf("open log file: %w", err)
 	}
 
-	// Re-exec ourselves without --daemon
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("find executable: %w", err)
@@ -430,7 +307,6 @@ func runDaemon(apiAddr string) error {
 		return fmt.Errorf("start daemon: %w", err)
 	}
 
-	// Save PID
 	pid := cmd.Process.Pid
 	if err := writePIDFile(pid); err != nil {
 		lf.Close()
@@ -438,7 +314,6 @@ func runDaemon(apiAddr string) error {
 		return fmt.Errorf("write pid file: %w", err)
 	}
 
-	// Detach — don't wait
 	cmd.Process.Release()
 	lf.Close()
 
@@ -497,21 +372,18 @@ func resolveAPIAddr(configAddr string) string {
 	if apiAddrFlag != "" {
 		return apiAddrFlag
 	}
-	if configAddr != "" {
-		return configAddr
+	if v := strings.TrimSpace(configAddr); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(os.Getenv("WEONE_API_ADDR")); v != "" {
+		return v
 	}
 	return defaultAPIAddr
 }
 
 func apiServerReachable(addr string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/health", nil)
-	if err != nil {
-		return false, err
-	}
-	resp, err := http.DefaultClient.Do(req)
+	client := http.Client{Timeout: 1500 * time.Millisecond}
+	resp, err := client.Get("http://" + addr + "/health")
 	if err != nil {
 		return false, err
 	}
@@ -520,23 +392,23 @@ func apiServerReachable(addr string) (bool, error) {
 }
 
 func processExists(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
 	return processExistsPlatform(pid)
 }
 
 func stopProcess(pid int) bool {
-	if !processExists(pid) {
+	if pid <= 0 {
 		return false
 	}
-	_ = terminateProcess(pid, false)
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if !processExists(pid) {
-			return true
+	if err := terminateProcess(pid, false); err != nil {
+		if err := terminateProcess(pid, true); err != nil {
+			log.Printf("failed to stop pid %d: %v", pid, err)
+			return false
 		}
-		time.Sleep(100 * time.Millisecond)
 	}
-	_ = terminateProcess(pid, true)
-	deadline = time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if !processExists(pid) {
 			return true

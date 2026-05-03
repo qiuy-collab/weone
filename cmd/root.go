@@ -12,8 +12,8 @@ var Version = "dev"
 
 var rootCmd = &cobra.Command{
 	Use:     "weone",
-	Short:   "WeChat AI agent bridge",
-	Long:    "weone bridges WeChat messages to AI agents via the iLink API.",
+	Short:   "WeChat companion runtime service",
+	Long:    "weone runs a WeChat companion service with configurable provider API, memory, materials, and proactive messaging.",
 	Version: Version,
 	RunE:    runStart, // default command is start
 }

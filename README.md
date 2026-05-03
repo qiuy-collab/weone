@@ -25,7 +25,7 @@ go install github.com/qiuy-collab/weone@latest
 
 ```bash
 git clone https://github.com/qiuy-collab/weone.git
-cd weone/weclaw
+cd weone
 go build ./...
 ```
 

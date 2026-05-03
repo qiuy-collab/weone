@@ -1,119 +1,35 @@
 package config
 
-import (
-	"encoding/json"
-	"testing"
-)
+import "testing"
 
-func TestAgentConfigUnmarshalEnv(t *testing.T) {
-	var cfg Config
-	data := []byte(`{
-		"agents": {
-			"claude": {
-				"type": "cli",
-				"command": "claude",
-				"env": {
-					"ANTHROPIC_API_KEY": "test-key",
-					"EMPTY": ""
-				}
-			}
-		}
-	}`)
-
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("unmarshal config: %v", err)
-	}
-
-	ag, ok := cfg.Agents["claude"]
-	if !ok {
-		t.Fatalf("expected claude agent config")
-	}
-	if got := ag.Env["ANTHROPIC_API_KEY"]; got != "test-key" {
-		t.Fatalf("ANTHROPIC_API_KEY = %q, want %q", got, "test-key")
-	}
-	if got, ok := ag.Env["EMPTY"]; !ok || got != "" {
-		t.Fatalf("EMPTY = %q, present=%v; want empty string present", got, ok)
-	}
-}
-
-func TestAgentConfigMarshalEnvRoundTrip(t *testing.T) {
-	cfg := Config{
-		Agents: map[string]AgentConfig{
-			"claude": {
-				Type:    "cli",
-				Command: "claude",
-				Env: map[string]string{
-					"ANTHROPIC_API_KEY": "test-key",
-					"EMPTY":             "",
-				},
-			},
-		},
-	}
-
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatalf("marshal config: %v", err)
-	}
-
-	var decoded Config
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("round-trip unmarshal: %v", err)
-	}
-
-	got := decoded.Agents["claude"].Env
-	if got["ANTHROPIC_API_KEY"] != "test-key" || got["EMPTY"] != "" {
-		t.Fatalf("round-trip env = %#v", got)
-	}
-}
-
-func TestAgentConfigWithoutEnvStillLoads(t *testing.T) {
-	var cfg Config
-	data := []byte(`{
-		"agents": {
-			"claude": {
-				"type": "cli",
-				"command": "claude"
-			}
-		}
-	}`)
-
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("unmarshal config without env: %v", err)
-	}
-
-	if cfg.Agents["claude"].Env != nil {
-		t.Fatalf("Env = %#v, want nil", cfg.Agents["claude"].Env)
-	}
-}
-
-func TestDefaultConfigInitializesAgentsMap(t *testing.T) {
+func TestDefaultConfigHasRuntimeDefaults(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.Agents == nil {
-		t.Fatal("DefaultConfig() Agents = nil, want initialized map")
+	if !cfg.Runtime.Enabled {
+		t.Fatal("Runtime.Enabled = false, want true")
+	}
+	if cfg.Runtime.Name != "companion" {
+		t.Fatalf("Runtime.Name = %q, want %q", cfg.Runtime.Name, "companion")
+	}
+	if cfg.Runtime.Provider.Type != "openai" {
+		t.Fatalf("Provider.Type = %q, want %q", cfg.Runtime.Provider.Type, "openai")
 	}
 }
 
-func TestLoadEnvOverridesTopLevelOnly(t *testing.T) {
-	t.Setenv("WEONE_DEFAULT_AGENT", "codex")
+func TestLoadEnvOverridesRuntimeFields(t *testing.T) {
 	t.Setenv("WEONE_API_ADDR", "127.0.0.1:18011")
+	t.Setenv("WEONE_PROVIDER_ENDPOINT", "https://api.example.com/v1/chat/completions")
+	t.Setenv("WEONE_PROVIDER_MODEL", "gpt-5.4")
 
 	cfg := DefaultConfig()
-	cfg.Agents["claude"] = AgentConfig{
-		Type: "cli",
-		Env: map[string]string{
-			"KEEP": "value",
-		},
-	}
-
 	loadEnv(cfg)
 
-	if cfg.DefaultAgent != "codex" {
-		t.Fatalf("DefaultAgent = %q, want %q", cfg.DefaultAgent, "codex")
-	}
 	if cfg.APIAddr != "127.0.0.1:18011" {
 		t.Fatalf("APIAddr = %q, want %q", cfg.APIAddr, "127.0.0.1:18011")
 	}
-	if got := cfg.Agents["claude"].Env["KEEP"]; got != "value" {
-		t.Fatalf("agent env = %q, want preserved value", got)
+	if cfg.Runtime.Provider.Endpoint != "https://api.example.com/v1/chat/completions" {
+		t.Fatalf("Provider.Endpoint = %q", cfg.Runtime.Provider.Endpoint)
+	}
+	if cfg.Runtime.Provider.Model != "gpt-5.4" {
+		t.Fatalf("Provider.Model = %q, want %q", cfg.Runtime.Provider.Model, "gpt-5.4")
 	}
 }

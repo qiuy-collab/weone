@@ -3,19 +3,16 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 )
 
 // Config holds the application configuration.
 type Config struct {
-	DefaultAgent string                 `json:"default_agent"`
-	APIAddr      string                 `json:"api_addr,omitempty"`
-	SaveDir      string                 `json:"save_dir,omitempty"`
-	Runtime      RuntimeConfig          `json:"runtime,omitempty"`
-	Proactive    ProactiveConfig        `json:"proactive,omitempty"`
-	Agents       map[string]AgentConfig `json:"agents"`
+	APIAddr   string          `json:"api_addr,omitempty"`
+	SaveDir   string          `json:"save_dir,omitempty"`
+	Runtime   RuntimeConfig   `json:"runtime,omitempty"`
+	Proactive ProactiveConfig `json:"proactive,omitempty"`
 }
 
 // RuntimeConfig holds configuration for the built-in companion runtime.
@@ -42,7 +39,7 @@ type ProviderConfig struct {
 	TimeoutMs int               `json:"timeout_ms,omitempty"`
 }
 
-// PersonaConfig holds the phase-1 persona fields for the built-in runtime.
+// PersonaConfig holds the companion persona fields for the built-in runtime.
 type PersonaConfig struct {
 	SystemPrompt string `json:"system_prompt,omitempty"`
 	Identity     string `json:"identity,omitempty"`
@@ -50,55 +47,7 @@ type PersonaConfig struct {
 	Style        string `json:"style,omitempty"`
 }
 
-// AgentConfig holds configuration for a single agent.
-type AgentConfig struct {
-	Type         string            `json:"type"`                    // "acp", "cli", or "http"
-	Command      string            `json:"command,omitempty"`       // binary path (cli/acp type)
-	Args         []string          `json:"args,omitempty"`          // extra args for command (e.g. ["acp"] for cursor)
-	Aliases      []string          `json:"aliases,omitempty"`       // custom trigger commands (e.g. ["gpt", "4o"])
-	Cwd          string            `json:"cwd,omitempty"`           // working directory (workspace)
-	Env          map[string]string `json:"env,omitempty"`           // extra environment variables (cli/acp type)
-	Model        string            `json:"model,omitempty"`         // model name
-	SystemPrompt string            `json:"system_prompt,omitempty"` // system prompt
-	Endpoint     string            `json:"endpoint,omitempty"`      // API endpoint (http type)
-	APIKey       string            `json:"api_key,omitempty"`       // API key (http type)
-	Headers      map[string]string `json:"headers,omitempty"`       // extra HTTP headers (http type)
-	MaxHistory   int               `json:"max_history,omitempty"`   // max history (http type)
-}
-
-// BuildAliasMap builds a map from custom alias to agent name from all agent configs.
-// It logs warnings for conflicts: duplicate aliases and aliases shadowing agent keys.
-func BuildAliasMap(agents map[string]AgentConfig) map[string]string {
-	// Built-in commands that cannot be overridden
-	reserved := map[string]bool{
-		"info": true, "help": true, "new": true, "clear": true, "cwd": true,
-	}
-
-	m := make(map[string]string)
-	for name, cfg := range agents {
-		for _, alias := range cfg.Aliases {
-			if reserved[alias] {
-				log.Printf("[config] WARNING: alias %q for agent %q conflicts with built-in command, ignored", alias, name)
-				continue
-			}
-			if existing, ok := m[alias]; ok {
-				log.Printf("[config] WARNING: alias %q is defined by both %q and %q, using %q", alias, existing, name, name)
-			}
-			m[alias] = name
-		}
-	}
-
-	// Warn if a custom alias shadows an agent key
-	for alias, target := range m {
-		if _, isAgent := agents[alias]; isAgent && alias != target {
-			log.Printf("[config] WARNING: alias %q (-> %q) shadows agent key %q", alias, target, alias)
-		}
-	}
-
-	return m
-}
-
-// DefaultConfig returns an empty configuration.
+// DefaultConfig returns the default runtime-only configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Runtime: RuntimeConfig{
@@ -118,7 +67,6 @@ func DefaultConfig() *Config {
 		Proactive: ProactiveConfig{
 			Enabled: true,
 		},
-		Agents: make(map[string]AgentConfig),
 	}
 }
 
@@ -168,9 +116,6 @@ func Load() (*Config, error) {
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
-	if cfg.Agents == nil {
-		cfg.Agents = make(map[string]AgentConfig)
-	}
 
 	loadEnv(cfg)
 	return cfg, nil
@@ -186,9 +131,6 @@ func envValue(keys ...string) string {
 }
 
 func loadEnv(cfg *Config) {
-	if v := envValue("WEONE_DEFAULT_AGENT"); v != "" {
-		cfg.DefaultAgent = v
-	}
 	if v := envValue("WEONE_API_ADDR"); v != "" {
 		cfg.APIAddr = v
 	}
