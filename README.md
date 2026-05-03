@@ -17,22 +17,43 @@
 
 ### 1) 安装
 
+如果你已经配置过 Go 的 bin 到 PATH，可以直接：
+
 ```bash
 go install github.com/qiuy-collab/weone@latest
+weone start
 ```
 
-或者拉源码本地运行：
+如果是 Windows 首次使用，建议直接用这组完整命令：
+
+```powershell
+go install github.com/qiuy-collab/weone@latest
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:USERPROFILE\go\bin", "User")
+$env:Path += ";$env:USERPROFILE\go\bin"
+weone start
+```
+
+如果你更想本地编译运行：
 
 ```bash
 git clone https://github.com/qiuy-collab/weone.git
 cd weone
 go build ./...
+./weone start
 ```
 
 ### 2) 启动
 
+如果你使用的是 `go install`：
+
 ```bash
 weone start
+```
+
+如果你使用的是本地 `go build`：
+
+```powershell
+.\weone.exe start
 ```
 
 启动后默认打开的控制台地址：
