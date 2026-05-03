@@ -111,6 +111,13 @@ func (s *Service) SaveProfileDocument(botID, markdown, source string) (ProfileDo
 	return s.profiles.SaveBotDocument(botID, markdown, source)
 }
 
+func (s *Service) UpsertProfileItem(botID, category, content, source string) (ProfileDocument, bool, error) {
+	if s == nil || s.profiles == nil {
+		return ProfileDocument{}, false, fmt.Errorf("memory service not configured")
+	}
+	return s.profiles.UpsertAutoProfile(botID, category, content, source)
+}
+
 func (s *Service) BuildRuntimeContext(botID string) string {
 	ctx := s.CollectRuntimeContext(botID)
 	return ctx.LoadedContext

@@ -38,7 +38,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		return err
 	}
 	for _, task := range tasks {
-		if task.Enabled && task.Schedule.CronExpr != "" {
+		if task.Enabled && (task.Schedule.CronExpr != "" || task.Schedule.FireAt != "") {
 			s.entries[task.ID] = task
 		}
 	}
@@ -53,7 +53,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 func (s *Scheduler) SyncTask(task Task) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !task.Enabled || task.Schedule.CronExpr == "" {
+	if !task.Enabled || (task.Schedule.CronExpr == "" && task.Schedule.FireAt == "") {
 		delete(s.entries, task.ID)
 		return nil
 	}
@@ -76,11 +76,8 @@ func (s *Scheduler) Snapshot() SchedulerSnapshot {
 	now := time.Now()
 	for taskID, task := range s.entries {
 		registered = append(registered, taskID)
-		if schedule, err := parseCronStandard(task.Schedule.CronExpr); err == nil {
-			next := schedule.Next(now, loadTaskLocation(task.Schedule.Timezone))
-			if !next.IsZero() {
-				nextRunAt[taskID] = next.UTC().Format(time.RFC3339)
-			}
+		if next := nextTaskRun(task, now); !next.IsZero() {
+			nextRunAt[taskID] = next.UTC().Format(time.RFC3339)
 		}
 	}
 	sort.Strings(registered)
@@ -92,11 +89,12 @@ func (s *Scheduler) Snapshot() SchedulerSnapshot {
 	}
 	sort.Strings(running)
 	return SchedulerSnapshot{
-		Running:       s.started,
-		RegisteredIDs: registered,
-		EntryCount:    len(registered),
-		RunningTasks:  running,
-		NextRunAt:     nextRunAt,
+		Running:          s.started,
+		RegisteredIDs:    registered,
+		EntryCount:       len(registered),
+		RunningTasks:     running,
+		RunningTaskCount: len(running),
+		NextRunAt:        nextRunAt,
 	}
 }
 
@@ -107,8 +105,12 @@ func (s *Scheduler) runTask(taskID string) {
 		log.Printf("[proactive] task=%s stage=execute state=skipped reason=already-running", taskID)
 		return
 	}
+	task, ok := s.entries[taskID]
 	s.running[taskID] = true
 	s.mu.Unlock()
+	if ok {
+		log.Printf("[proactive] task=%s stage=execute state=start kind=%s bot_id=%s to_user_id=%s title=%q cron=%q fire_at=%q timezone=%q", task.ID, task.Kind, task.BotID, task.ToUserID, task.Title, task.Schedule.CronExpr, task.Schedule.FireAt, task.Schedule.Timezone)
+	}
 	defer func() {
 		s.mu.Lock()
 		delete(s.running, taskID)
@@ -131,18 +133,18 @@ func (s *Scheduler) runTask(taskID string) {
 func (s *Scheduler) loop(ctx context.Context) {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
-	s.checkDueTasks(time.Now())
+	s.checkDueTasks(ctx, time.Now())
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
-			s.checkDueTasks(now)
+			s.checkDueTasks(ctx, now)
 		}
 	}
 }
 
-func (s *Scheduler) checkDueTasks(now time.Time) {
+func (s *Scheduler) checkDueTasks(ctx context.Context, now time.Time) {
 	s.mu.Lock()
 	entries := make([]Task, 0, len(s.entries))
 	for _, task := range s.entries {
@@ -150,19 +152,51 @@ func (s *Scheduler) checkDueTasks(now time.Time) {
 	}
 	s.mu.Unlock()
 	for _, task := range entries {
-		schedule, err := parseCronStandard(task.Schedule.CronExpr)
-		if err != nil {
-			log.Printf("[proactive] task=%s stage=schedule state=invalid err=%v", task.ID, err)
+		if task.Schedule.CronExpr != "" {
+			schedule, err := parseCronStandard(task.Schedule.CronExpr)
+			if err != nil {
+				log.Printf("[proactive] task=%s stage=schedule state=invalid err=%v", task.ID, err)
+				continue
+			}
+			loc := loadTaskLocation(task.Schedule.Timezone)
+			windowEnd := now.In(loc).Truncate(time.Minute)
+			windowStart := windowEnd.Add(-1 * time.Minute)
+			next := nextCronRun(schedule, windowStart, loc)
+			if !next.IsZero() && !next.After(windowEnd) {
+				log.Printf("[proactive] task=%s stage=schedule state=due kind=%s bot_id=%s to_user_id=%s title=%q cron=%q timezone=%q next=%s", task.ID, task.Kind, task.BotID, task.ToUserID, task.Title, task.Schedule.CronExpr, task.Schedule.Timezone, next.UTC().Format(time.RFC3339))
+				go s.runTask(task.ID)
+			}
 			continue
 		}
-		loc := loadTaskLocation(task.Schedule.Timezone)
-		windowEnd := now.In(loc).Truncate(time.Minute)
-		windowStart := windowEnd.Add(-1 * time.Minute)
-		next := schedule.Next(windowStart, loc)
-		if !next.IsZero() && !next.After(windowEnd) {
-			go s.runTask(task.ID)
+		if task.Schedule.FireAt != "" {
+			fireAt, err := parseFireAt(task.Schedule.FireAt, loadTaskLocation(task.Schedule.Timezone))
+			if err != nil {
+				log.Printf("[proactive] task=%s stage=schedule state=invalid-fire-at err=%v", task.ID, err)
+				continue
+			}
+			windowEnd := now.UTC().Truncate(time.Minute)
+			windowStart := windowEnd.Add(-1 * time.Minute)
+			if (fireAt.Equal(windowStart) || fireAt.After(windowStart)) && !fireAt.After(windowEnd) {
+				log.Printf("[proactive] task=%s stage=schedule state=due kind=%s bot_id=%s to_user_id=%s title=%q fire_at=%q", task.ID, task.Kind, task.BotID, task.ToUserID, task.Title, task.Schedule.FireAt)
+				go s.runTask(task.ID)
+			}
 		}
 	}
+	s.service.EvaluateSilencePolicies(ctx, now)
+}
+
+func nextTaskRun(task Task, now time.Time) time.Time {
+	if task.Schedule.FireAt != "" {
+		if fireAt, err := parseFireAt(task.Schedule.FireAt, loadTaskLocation(task.Schedule.Timezone)); err == nil {
+			return fireAt.UTC()
+		}
+	}
+	if task.Schedule.CronExpr != "" {
+		if schedule, err := parseCronStandard(task.Schedule.CronExpr); err == nil {
+			return nextCronRun(schedule, now, loadTaskLocation(task.Schedule.Timezone))
+		}
+	}
+	return time.Time{}
 }
 
 func loadTaskLocation(name string) *time.Location {

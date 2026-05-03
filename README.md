@@ -1,343 +1,547 @@
 # weone
 
-[中文文档](README_CN.md)
+微信 AI 陪伴与主动触达桥接器。
 
-WeChat AI Agent Bridge — connect WeChat to AI agents (Claude, Codex, Gemini, Kimi, etc.).
+> 本项目灵感来自 [fastclaw-ai/weclaw](https://github.com/fastclaw-ai/weclaw)。
+> 当前仓库是在旧项目思路基础上，围绕 **陪伴对话、素材语义匹配、主动触达、提醒与沉默唤醒** 做的一次重构与扩展。
 
-> This project is inspired by [@tencent-weixin/openclaw-weixin](https://npmx.dev/package/@tencent-weixin/openclaw-weixin). For personal learning only, not for commercial use.
+---
 
-| | | |
-|:---:|:---:|:---:|
-| <img src="previews/preview1.png" width="280" /> | <img src="previews/preview2.png" width="280" /> | <img src="previews/preview3.png" width="280" /> |
+## 项目简介
 
-## Quick Start
+`weone` 用来把 **微信 Bot**、**AI 对话运行时**、**长期/短期记忆**、**素材库**、**主动提醒策略** 接到一起，形成一个可运行的陪伴型 AI 系统。
 
-```bash
-# One-line install
-curl -sSL https://raw.githubusercontent.com/qiuy-collab/weone/main/install.sh | sh
+它不只是“收到消息再回复”的聊天桥，而是一个包含以下能力的完整链路：
 
-# Start (first run will prompt QR code login)
-weclaw start
+- 微信消息接入与回复
+- 陪伴型人设与模型配置
+- 长期 / 短期记忆
+- 素材导入、语义检索、回复意图匹配
+- 主动触达任务（定时问候 / 事件提醒 / 沉默唤醒）
+- Web 控制台配置、管理与日志查看
+
+适合场景：
+
+- 微信陪伴助手
+- 带素材回复的情绪陪聊 Bot
+- 可根据对话自动生成提醒的 AI 助手
+- 需要“主动聊天”能力的长期陪伴型机器人
+
+---
+
+## 第一版已经完成的核心能力
+
+### 1. 陪伴对话
+
+- 微信用户发消息后，路由到运行时模型
+- 支持身份、语气、回复风格配置
+- 回复时自动加载长期记忆与最近对话记忆
+
+### 2. 素材语义匹配
+
+- 支持图片、视频、文件、文本素材导入
+- 支持 AI 导入分析
+- 支持按 **AI 回复意图** 匹配素材，而不是只看用户原话
+- 可用于表情包、安慰图、活动图、资料卡等内容发送
+
+### 3. 主动触达
+
+当前主动触达已经拆成两层：
+
+- **策略层**：决定什么时候允许判断
+- **任务层**：真正落地执行的提醒任务
+
+支持三类：
+
+- **定时问候**：用户手动创建和维护
+- **沉默唤醒**：用户沉默达到阈值后，AI 决定是否主动聊天
+- **事件提醒**：AI 根据对话决定创建一次性提醒或长期提醒
+
+### 4. Web 控制台
+
+默认地址：
+
+```text
+http://127.0.0.1:18011
 ```
 
-That's it. On first start, weone will:
-1. Show a QR code — scan with WeChat to login
-2. Auto-detect installed AI agents (Claude, Codex, Gemini, etc.)
-3. Save config to `~/.weone/config.json`
-4. Start receiving and replying to WeChat messages
+支持：
 
-Use `weone login` to add additional WeChat accounts.
+- 运行时配置
+- 账号状态查看
+- 素材管理
+- 记忆查看
+- 主动触达策略配置
+- 任务列表查看与编辑
+- 日志查看
 
-### Other install methods
+---
 
-```bash
-# Via Go
-go install github.com/qiuy-collab/weone@latest
+## 界面预览与模块讲解
 
-# Via Docker
-docker run -it -v ~/.weone:/root/.weone ghcr.io/qiuy-collab/weone start
-```
+下面这些截图都来自仓库内的 `previews/`，这里直接按模块做说明。
 
-## How It Works
+### 控制台首页 / 模型配置
+
+用于配置运行时模型、API 地址、Key、人设与回复风格，是整个系统的入口页面。
 
 <p align="center">
-  <img src="previews/architecture.png" width="600" />
+  <img src="previews/屏幕截图 2026-05-03 124806.png" width="900" />
 </p>
 
-**Agent modes:**
+这块主要负责：
 
-| Mode | How it works | Examples |
-|------|-------------|----------|
-| ACP  | Long-running subprocess, JSON-RPC over stdio. Fastest — reuses process and sessions. | Claude, Codex, Kimi, Gemini, Cursor, OpenCode, OpenClaw |
-| CLI  | Spawns a new process per message. Supports session resume via `--resume`. | Claude (`claude -p`), Codex (`codex exec`) |
-| HTTP | OpenAI-compatible chat completions API. | OpenClaw (HTTP fallback) |
+- Base URL / API Key / Model Name 配置
+- 连接测试
+- 人设与陪伴风格设置
+- 启动后整体状态确认
 
-Auto-detection picks ACP over CLI when both are available.
+---
 
-## Chat Commands
+### 主动触达策略面板
 
-Send these as WeChat messages:
+这是第一版里最重要的新增模块之一。
 
-| Command | Description |
-|---------|-------------|
-| `hello` | Send to default agent |
-| `/codex write a function` | Send to a specific agent |
-| `/cc explain this code` | Send to agent by alias |
-| `/claude` | Switch default agent to Claude |
-| `/cwd /path/to/project` | Switch workspace directory |
-| `/new` | Start a new conversation (clear session) |
-| `/info` | Show current agent info |
-| `/help` | Show help message |
+<p align="center">
+  <img src="previews/屏幕截图 2026-05-03 124824.png" width="900" />
+</p>
 
-### Aliases
+当前策略区已经支持：
 
-| Alias | Agent |
-|-------|-------|
-| `/cc` | claude |
-| `/cx` | codex |
-| `/cs` | cursor |
-| `/km` | kimi |
-| `/gm` | gemini |
-| `/ocd` | opencode |
-| `/oc` | openclaw |
+- 左侧 **全局 Bot 选择**
+- 右侧策略继承全局 Bot / User
+- 定时问候、沉默唤醒、事件提醒三类策略配置
+- 策略状态查看与保存
 
-You can also define custom aliases per agent in config:
+其中：
 
-```json
-{
-  "agents": {
-    "claude": {
-      "type": "acp",
-      "aliases": ["ai", "c"]
-    }
-  }
-}
+- **定时问候**：偏手动管理
+- **沉默唤醒**：达到沉默阈值时才进入一次判断
+- **事件提醒**：根据上下文自动生成 one-shot 或 recurring 提醒
+
+---
+
+### 主动任务列表 / 看板视图
+
+任务列表已经不是单纯表格，而是按状态分栏展示。
+
+<p align="center">
+  <img src="previews/屏幕截图 2026-05-03 124911.png" width="900" />
+</p>
+
+当前分栏包括：
+
+- 每日循环
+- 排队中
+- 已结束
+- 执行错误
+
+适合直接观察：
+
+- 当前有哪些 AI 生成的提醒
+- 哪些任务已经执行完成
+- 哪些任务执行失败
+- 哪些定时任务仍在循环中
+
+---
+
+### 任务编辑面板
+
+这个区域用于创建和维护具体任务。
+
+<p align="center">
+  <img src="previews/屏幕截图 2026-05-03 124923.png" width="900" />
+</p>
+
+目前支持：
+
+- 新建任务
+- 修改任务
+- 删除任务
+- 一次性 / 每天 / 每周 / 自定义 cron
+- Bot 下拉与自动匹配用户
+
+这部分主要服务于：
+
+- 手动创建定时问候
+- 手动补充事件提醒
+- 验证主动任务执行链路
+
+---
+
+### 素材管理与发送效果
+
+素材系统已经是这版里很重要的一条链路。
+
+#### 控制台中的素材管理
+
+<p align="center">
+  <img src="previews/屏幕截图 2026-05-03 124936.png" width="900" />
+</p>
+
+支持：
+
+- 批量导入
+- AI 分析
+- 标签 / 描述维护
+- 预览图片、视频、文件
+- 编辑与删除素材
+
+#### 素材发送效果
+
+<p align="center">
+  <img src="previews/素材发送.jpg" width="720" />
+</p>
+
+当前的素材触发逻辑不是简单关键词，而是：
+
+1. 用户发消息
+2. AI 先生成自己的回复意图
+3. 再根据 **回复意图语义** 去匹配素材
+4. 最终将素材作为补充内容发出
+
+这更适合陪伴场景，而不是死板规则回复。
+
+---
+
+### 沉默唤醒效果
+
+沉默唤醒是第一版里最偏“主动性”的能力。
+
+<p align="center">
+  <img src="previews/沉默唤醒.jpg" width="720" />
+</p>
+
+当前逻辑已经修到：
+
+- 用户发完消息后开始重新计时
+- 达到阈值时只判断一次
+- AI 决定现在要不要主动发消息
+- 用户再次发言后，重新进入下一轮计时
+
+也就是说，已经避免了“达到阈值后每分钟重复 ask AI”的问题。
+
+---
+
+### 日志与测试过程截图
+
+仓库里还保留了若干测试过程截图：
+
+- `屏幕截图 2026-05-03 124952.png`
+- 以及前面几张控制台截图
+
+这些图主要用于：
+
+- 记录第一版联调过程
+- 对照查看策略与任务链路
+- 方便后续继续打磨 UI 与交互
+
+---
+
+## 系统架构概览
+
+<p align="center">
+  <img src="previews/architecture.png" width="640" />
+</p>
+
+核心链路可以理解成：
+
+```text
+微信消息
+  -> 消息处理器
+  -> 运行时模型
+  -> 记忆 / 素材 / 主动策略
+  -> 回复 or 创建主动任务
+  -> 微信发送
 ```
 
-Then `/ai hello` or `/c hello` will route to claude.
+主要模块：
 
-Switching default agent is persisted to config — survives restarts.
+- `cmd/`：启动、停止、发送消息等命令入口
+- `api/`：Web 控制台与 HTTP API
+- `messaging/`：消息处理与发送
+- `memory/`：短期记忆、长期画像、上下文构建
+- `materials/`：素材导入、检索、发送
+- `proactive/`：主动触达策略、任务、调度器
+- `internal/runtime/`：模型调用与运行时抽象
+- `ilink/`：微信 Bot 接口对接
 
-## Media Messages
+---
 
-weone supports sending images, videos, files, and voice messages to/from WeChat.
+## 运行环境
 
-**Voice messages:** When you send a voice message in WeChat, weone automatically uses WeChat's speech-to-text transcription and forwards the text to the AI agent. Duplicate voice message events are automatically deduplicated.
+建议环境：
 
-**From agent replies:** When an AI agent returns markdown with images (`![](url)`), weone automatically extracts the image URLs, downloads them, uploads to WeChat CDN (AES-128-ECB encrypted), and sends them as image messages.
+- Go `1.25.0` 或更高
+- Windows / Linux / macOS
+- 可访问你配置的模型 API
+- 已准备可登录的微信 Bot 环境
 
-**Markdown handling:** Agent responses are automatically converted from markdown to plain text for WeChat display — code fences are stripped, links show display text only, bold/italic markers are removed, etc.
+关键依赖包括：
 
-## Proactive Messaging
+- `github.com/spf13/cobra`
+- `github.com/robfig/cron/v3`
+- `github.com/google/uuid`
+- `modernc.org/sqlite`
 
-Send messages to WeChat users without waiting for them to message first.
+---
 
-**CLI:**
+## 安装
+
+### 方式一：通过 Go 安装
 
 ```bash
-# Send text
-weone send --to "user_id@im.wechat" --text "Hello from weone"
-
-# Send image
-weone send --to "user_id@im.wechat" --media "https://example.com/photo.png"
-
-# Send text + image
-weone send --to "user_id@im.wechat" --text "Check this out" --media "https://example.com/photo.png"
-
-# Send file
-weone send --to "user_id@im.wechat" --media "https://example.com/report.pdf"
+go install github.com/qiuy-collab/weone@latest
 ```
 
-**HTTP API** (runs on `127.0.0.1:18011` when `weone start` is running):
+### 方式二：拉源码本地运行
 
 ```bash
-# Send text
-curl -X POST http://127.0.0.1:18011/api/send \
-  -H "Content-Type: application/json" \
-  -d '{"to": "user_id@im.wechat", "text": "Hello from weone"}'
-
-# Send image
-curl -X POST http://127.0.0.1:18011/api/send \
-  -H "Content-Type: application/json" \
-  -d '{"to": "user_id@im.wechat", "media_url": "https://example.com/photo.png"}'
-
-# Send text + media
-curl -X POST http://127.0.0.1:18011/api/send \
-  -H "Content-Type: application/json" \
-  -d '{"to": "user_id@im.wechat", "text": "See this", "media_url": "https://example.com/photo.png"}'
+git clone https://github.com/qiuy-collab/weone.git
+cd weone/weclaw
+go build ./...
 ```
 
-Supported media types: images (png, jpg, gif, webp), videos (mp4, mov), files (pdf, doc, zip, etc.).
-
-Set `WECLAW_API_ADDR` to change the listen address (e.g. `0.0.0.0:18011`).
-
-## Configuration
-
-Config file: `~/.weone/config.json`
-
-```json
-{
-  "default_agent": "claude",
-  "agents": {
-    "claude": {
-      "type": "acp",
-      "command": "/usr/local/bin/claude-agent-acp",
-      "env": {
-        "ANTHROPIC_API_KEY": "sk-ant-xxx"
-      },
-      "model": "sonnet"
-    },
-    "codex": {
-      "type": "acp",
-      "command": "/usr/local/bin/codex-acp",
-      "env": {
-        "OPENAI_API_KEY": "sk-xxx"
-      }
-    },
-    "openclaw": {
-      "type": "http",
-      "endpoint": "https://api.example.com/v1/chat/completions",
-      "api_key": "sk-xxx",
-      "model": "openclaw:main"
-    }
-  }
-}
-```
-
-Environment variables:
-- `WECLAW_DEFAULT_AGENT` — override default agent
-- `OPENCLAW_GATEWAY_URL` — OpenClaw HTTP fallback endpoint
-- `OPENCLAW_GATEWAY_TOKEN` — OpenClaw API token
-
-Custom agent CLI environment variables:
-
-```json
-{
-  "default_agent": "...",
-  "agents": {
-    "...": {
-      ...
-      "env": {
-        "ENV_NAME": "ENV_VALUE"
-      }
-    },
-  }
-}
-```
-
-### Permission bypass
-
-By default, some agents require interactive permission approval which doesn't work in WeChat. Add `args` to your agent config to bypass:
-
-| Agent | Flag | What it does |
-|-------|------|-------------|
-| Claude (CLI) | `--dangerously-skip-permissions` | Skip all tool permission prompts |
-| Codex (CLI) | `--skip-git-repo-check` | Allow running outside git repos |
-
-Example:
-
-```json
-{
-  "claude": {
-    "type": "cli",
-    "command": "/usr/local/bin/claude",
-    "cwd": "/home/user/my-project",
-    "args": ["--dangerously-skip-permissions"]
-  },
-  "codex": {
-    "type": "cli",
-    "command": "/usr/local/bin/codex",
-    "cwd": "/home/user/my-project",
-    "args": ["--skip-git-repo-check"]
-  }
-}
-```
-
-Set `cwd` to specify the agent's working directory (workspace). If omitted, defaults to `~/.weone/workspace`.
-
-> **Warning:** These flags disable safety checks. Only enable them if you understand the risks. ACP agents handle permissions automatically and don't need these flags.
-
-## Background Mode
+### 方式三：Docker
 
 ```bash
-# Start (runs in background by default)
-weone start
-
-# Check if running
-weone status
-
-# Stop
-weone stop
-
-# Run in foreground (for debugging)
-weone start -f
-```
-
-Logs are written to `~/.weone/weone.log`.
-
-### System service (auto-start on boot)
-
-**macOS (launchd):**
-
-```bash
-cp service/com.fastclaw.weclaw.plist ~/Library/LaunchAgents/com.qiuy-collab.weone.plist
-launchctl load ~/Library/LaunchAgents/com.qiuy-collab.weone.plist
-```
-
-**Linux (systemd):**
-
-```bash
-sudo cp service/weclaw.service /etc/systemd/system/weone.service
-sudo systemctl enable --now weone
-```
-
-## Docker
-
-```bash
-# Build
 docker build -t weone .
-
-# Login (interactive — scan QR code)
-docker run -it -v ~/.weone:/root/.weone weone login
-
-# Start with HTTP agent
-docker run -d --name weone \
-  -v ~/.weone:/root/.weone \
-  -e OPENCLAW_GATEWAY_URL=https://api.example.com \
-  -e OPENCLAW_GATEWAY_TOKEN=sk-xxx \
-  weone
-
-# View logs
-docker logs -f weone
 ```
 
-> Note: ACP and CLI agents require the agent binary inside the container.
-> The Docker image ships only WeClaw itself. For ACP/CLI agents, mount
-> the binary or build a custom image. HTTP agents work out of the box.
+> 如果你使用 ACP / CLI 型 Agent，容器里还需要对应 Agent 可执行文件；
+> 如果只走 HTTP 兼容模型接口，则更容易直接运行。
 
-## Release
+---
+
+## 快速开始
+
+### 1. 启动服务
 
 ```bash
-# Tag a new version to trigger GitHub Actions build & release
-git tag v0.1.0
-git push origin v0.1.0
+weone start
 ```
 
-The workflow builds binaries for `darwin/linux/windows` x `amd64/arm64`, creates a GitHub Release, and uploads all artifacts with checksums.
+默认控制台：
 
-## Update
+```text
+http://127.0.0.1:18011
+```
+
+### 2. 打开控制台完成配置
+
+建议顺序：
+
+1. 配置模型 API
+2. 测试连接
+3. 确认账号在线
+4. 设置人设
+5. 导入素材
+6. 查看主动触达策略
+
+### 3. 开始测试消息
+
+在微信里给 Bot 发消息，观察：
+
+- 是否正常回复
+- 是否写入短期记忆
+- 是否提取长期画像
+- 是否命中素材
+- 是否触发事件提醒 / 沉默唤醒判断
+
+---
+
+## 配置说明
+
+配置文件默认位置：
+
+```text
+~/.weone/config.json
+```
+
+一个典型的运行时配置示例：
+
+```json
+{
+  "runtime": {
+    "enabled": true,
+    "name": "companion",
+    "provider": {
+      "type": "openai",
+      "endpoint": "https://your-api.example.com/v1/chat/completions",
+      "api_key": "sk-xxx",
+      "model": "gpt-5.4"
+    }
+  }
+}
+```
+
+最常改的通常是：
+
+- Base URL
+- API Key
+- Model Name
+- 系统提示词
+- 身份
+- 语气
+- 回复风格
+
+---
+
+## 主动触达说明
+
+### 定时问候
+
+这是 **手动任务**，适合每天固定时间问候。
+
+### 沉默唤醒
+
+这是 **策略驱动**。
+
+当前逻辑：
+
+- 用户发完消息后开始计时
+- 达到沉默阈值时进行一次主动判断
+- AI 决定当前是否适合主动发消息
+- 用户再次发言后重新开始下一轮计时
+
+### 事件提醒
+
+这是 **AI 决策型提醒**。
+
+支持：
+
+- 一次性提醒
+- 长期重复提醒
+
+例如：
+
+- “明天下午两点去买水果” -> 一次性提醒
+- “每天八点都要去上班” -> 长期提醒
+
+当前版本已补充：
+
+- 明确的当前时间上下文
+- 5 段标准 cron 约束
+- 6 段 cron 兼容修正
+
+---
+
+## 素材系统说明
+
+素材系统不是简单关键词回复。
+
+当前方向是：
+
+- 导入时尽量识别素材语义
+- 回复时根据 **AI 最终回复意图** 去命中素材
+- 再把素材发送给用户
+
+适合放：
+
+- 表情包
+- 安慰图
+- 情绪类图片
+- 宣传图 / 活动图
+- 资料卡
+
+---
+
+## 常用命令
+
+### 服务控制
 
 ```bash
-# Update to the latest version (auto-restarts if running)
-weone update
-
-# Check current version
-weone version
+weone start
+weone start -f
+weone stop
 ```
 
-## Development
+### 主动发送
 
 ```bash
-# Hot reload
-make dev
-
-# Build
-go build -o weone .
-
-# Run
-./weone start
+weone send --to "user_id@im.wechat" --text "你好"
+weone send --to "user_id@im.wechat" --media "https://example.com/a.png"
 ```
 
-## Contributors
+### 构建与测试
 
-<a href="https://github.com/qiuy-collab/weone/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=qiuy-collab/weone" />
-</a>
+```bash
+go test ./...
+go build ./...
+```
 
-## Star History
+---
 
-[![Star History Chart](https://api.star-history.com/svg?repos=qiuy-collab/weone&type=Timeline)](https://star-history.com/#qiuy-collab/weone&Timeline)
+## 开发说明
 
-## License
+推荐开发流程：
 
-[MIT](LICENSE)
+```bash
+cd weone/weclaw
+go test ./...
+go build ./...
+go run . start
+```
+
+如果你在改：
+
+- 主动触达 -> 看 `proactive/`
+- Web 控制台 -> 看 `api/static/index.html`
+- 消息链路 -> 看 `messaging/`
+- 记忆系统 -> 看 `memory/`
+- 素材系统 -> 看 `materials/`
+
+---
+
+## 日志与数据
+
+常见本地数据：
+
+- 配置文件：`~/.weone/config.json`
+- 日志文件：`~/.weone/weone.log`
+- 账号数据：`~/.weone/accounts/`
+- 主动任务数据：`~/.weone/` 下相关持久化文件
+
+---
+
+## 第一版测试清单
+
+建议验收至少测：
+
+### 对话链路
+
+- 文本正常回复
+- 人设生效
+- 多轮上下文生效
+
+### 记忆链路
+
+- 短期记忆写入
+- 稳定表达进入长期画像
+
+### 素材链路
+
+- 图片导入
+- AI 分析后语义匹配
+- 回复意图触发素材发送
+
+### 主动触达链路
+
+- 定时问候手动创建与执行
+- 沉默唤醒达到阈值后判断一次
+- 事件提醒创建一次性任务
+- 长期提醒生成 recurring cron
+
+---
+
+## 免责声明
+
+本项目仅供学习、研究和个人测试使用。
+
+请自行确认：
+
+- 模型 API 的使用合规性
+- 微信相关接入方式的使用边界
+- 个人数据、聊天记录、素材内容的合法合规处理
+
+请勿用于违法、骚扰、侵犯隐私或其他不当用途。

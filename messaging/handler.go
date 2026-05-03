@@ -51,6 +51,7 @@ type Handler struct {
 	saveDir       string   // directory to save images/files to
 	seenMsgs      sync.Map // map[int64]time.Time — dedup by message_id
 	onInbound     func(botID, userID string, at time.Time)
+	onRuntimeTurn func(ctx context.Context, botID, userID, message, reply, memoryContext string)
 }
 
 // StatusSnapshot describes the current default reply engine.
@@ -81,6 +82,10 @@ func (h *Handler) SetSaveDir(dir string) {
 
 func (h *Handler) SetInboundRecorder(recorder func(botID, userID string, at time.Time)) {
 	h.onInbound = recorder
+}
+
+func (h *Handler) SetRuntimeTurnRecorder(recorder func(ctx context.Context, botID, userID, message, reply, memoryContext string)) {
+	h.onRuntimeTurn = recorder
 }
 
 // cleanSeenMsgs removes entries older than 5 minutes from the dedup cache.
@@ -770,6 +775,9 @@ func (h *Handler) chatWithRuntime(ctx context.Context, botID, userID, message st
 			}
 			reply = appendMemoryConfirmation(reply, memoryResult.Profiles)
 		}
+	}
+	if h.onRuntimeTurn != nil {
+		h.onRuntimeTurn(ctx, botID, userID, message, StripMaterialDirectives(reply), memoryContext)
 	}
 
 	log.Printf("[handler] bot=%s user=%s route=runtime state=finished elapsed=%s preview=%q", botID, userID, elapsed, truncate(StripMaterialDirectives(reply), 100))

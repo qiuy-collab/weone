@@ -165,8 +165,25 @@ type proactiveTaskDeleteRequest struct {
 	ID string `json:"id"`
 }
 
+type proactiveTasksDeleteRequest struct {
+	IDs []string `json:"ids"`
+}
+
 type proactiveTaskExecuteRequest struct {
 	ID string `json:"id"`
+}
+
+type proactiveStatusResponse struct {
+	Scheduler        proactive.SchedulerSnapshot `json:"scheduler"`
+	BotIDs           []string                    `json:"bot_ids"`
+	Policies         []proactive.Policy          `json:"policies"`
+	Tasks            []proactive.Task            `json:"tasks"`
+	TaskItems        []proactive.TaskListItem    `json:"task_items"`
+	Targets          []proactive.TargetOption    `json:"targets"`
+	HasTasks         bool                        `json:"has_tasks"`
+	TaskCount        int                         `json:"task_count"`
+	RunningTaskCount int                         `json:"running_task_count"`
+	SchedulerRunning bool                        `json:"scheduler_running"`
 }
 
 func NewServer(runtimeAccounts *AccountRuntimeManager, handler *messaging.Handler, memorySvc *memory.Service, materialsSvc *materials.Service, proactiveSvc *proactive.Service, addr string, cfg *config.Config, saveConfig func(*config.Config) error, statusText func() string) *Server {
@@ -206,7 +223,10 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("/api/proactive/tasks", s.handleProactiveTasks)
 	mux.HandleFunc("/api/proactive/task", s.handleProactiveTask)
 	mux.HandleFunc("/api/proactive/task/delete", s.handleProactiveTaskDelete)
+	mux.HandleFunc("/api/proactive/tasks/delete", s.handleProactiveTasksDelete)
 	mux.HandleFunc("/api/proactive/task/execute", s.handleProactiveTaskExecute)
+	mux.HandleFunc("/api/proactive/policies", s.handleProactivePolicies)
+	mux.HandleFunc("/api/proactive/policy", s.handleProactivePolicy)
 	mux.HandleFunc("/api/proactive/status", s.handleProactiveStatus)
 	mux.HandleFunc("/api/logs", s.handleLogs)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -242,7 +262,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "render page failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	_ = tmpl.Execute(w, map[string]any{"Title": "Weclaw 控制台"})
+	_ = tmpl.Execute(w, map[string]any{"Title": "weone 控制台"})
 }
 
 func (s *Server) handleRuntimeConfig(w http.ResponseWriter, r *http.Request) {
@@ -953,7 +973,17 @@ func (s *Server) handleProactiveTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "list proactive tasks failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+	items, err := s.proactiveSvc.ListTaskItems()
+	if err != nil {
+		http.Error(w, "list proactive task items failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	targets, err := s.proactiveSvc.ListTargetOptions()
+	if err != nil {
+		http.Error(w, "list proactive target options failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks, "items": items, "targets": targets})
 }
 
 func (s *Server) handleProactiveTask(w http.ResponseWriter, r *http.Request) {
@@ -1012,6 +1042,27 @@ func (s *Server) handleProactiveTaskDelete(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
+func (s *Server) handleProactiveTasksDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.proactiveSvc == nil {
+		http.Error(w, "proactive service not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var req proactiveTasksDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := s.proactiveSvc.DeleteTasks(req.IDs); err != nil {
+		http.Error(w, "delete proactive tasks failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
 func (s *Server) handleProactiveTaskExecute(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -1034,6 +1085,58 @@ func (s *Server) handleProactiveTaskExecute(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) handleProactivePolicies(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.proactiveSvc == nil {
+		http.Error(w, "proactive service not configured", http.StatusServiceUnavailable)
+		return
+	}
+	policies, err := s.proactiveSvc.ListPolicies()
+	if err != nil {
+		http.Error(w, "list proactive policies failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"policies": policies})
+}
+
+func (s *Server) handleProactivePolicy(w http.ResponseWriter, r *http.Request) {
+	if s.proactiveSvc == nil {
+		http.Error(w, "proactive service not configured", http.StatusServiceUnavailable)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		kind := proactive.PolicyKind(strings.TrimSpace(r.URL.Query().Get("kind")))
+		if kind == "" {
+			http.Error(w, `"kind" is required`, http.StatusBadRequest)
+			return
+		}
+		policy, err := s.proactiveSvc.GetPolicy(kind)
+		if err != nil {
+			http.Error(w, "load proactive policy failed: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"item": policy})
+	case http.MethodPost:
+		var req proactive.UpsertPolicyInput
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		policy, err := s.proactiveSvc.UpsertPolicy(req)
+		if err != nil {
+			http.Error(w, "save proactive policy failed: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"item": policy})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func (s *Server) handleProactiveStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
@@ -1043,9 +1146,38 @@ func (s *Server) handleProactiveStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "proactive service not configured", http.StatusServiceUnavailable)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"scheduler": s.proactiveSvc.SchedulerSnapshot(),
-		"bot_ids":   s.clientBotIDs(),
+	tasks, err := s.proactiveSvc.ListTasks("", "")
+	if err != nil {
+		http.Error(w, "list proactive tasks failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	items, err := s.proactiveSvc.ListTaskItems()
+	if err != nil {
+		http.Error(w, "list proactive task items failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	policies, err := s.proactiveSvc.ListPolicies()
+	if err != nil {
+		http.Error(w, "list proactive policies failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	targets, err := s.proactiveSvc.ListTargetOptions()
+	if err != nil {
+		http.Error(w, "list proactive target options failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	snapshot := s.proactiveSvc.SchedulerSnapshot()
+	writeJSON(w, http.StatusOK, proactiveStatusResponse{
+		Scheduler:        snapshot,
+		BotIDs:           s.clientBotIDs(),
+		Policies:         policies,
+		Tasks:            tasks,
+		TaskItems:        items,
+		Targets:          targets,
+		HasTasks:         len(tasks) > 0,
+		TaskCount:        len(tasks),
+		RunningTaskCount: snapshot.RunningTaskCount,
+		SchedulerRunning: snapshot.Running,
 	})
 }
 

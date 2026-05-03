@@ -145,6 +145,9 @@ func runStart(cmd *cobra.Command, args []string) error {
 			log.Printf("[proactive] record inbound failed bot=%s user=%s err=%v", botID, userID, err)
 		}
 	})
+	handler.SetRuntimeTurnRecorder(func(ctx context.Context, botID, userID, message, reply, memoryContext string) {
+		proactiveSvc.ProcessConversationDecision(ctx, botID, userID, message, reply, memoryContext)
+	})
 
 	// Set save directory for images/files if configured
 	if cfg.SaveDir != "" {

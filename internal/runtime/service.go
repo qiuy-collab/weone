@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -134,26 +135,109 @@ func (p *OpenAIProvider) generate(ctx context.Context, reqBody map[string]any, s
 		return "", fmt.Errorf("API error HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		log.Printf("[runtime-provider] state=request-failed endpoint=%s model=%s mode=%s stage=parse-response elapsed=%s err=%v", p.endpoint, p.model, mode, time.Since(start), err)
+	reply, err := parseProviderResponse(body, resp.Header.Get("Content-Type"))
+	if err != nil {
+		log.Printf("[runtime-provider] state=request-failed endpoint=%s model=%s mode=%s stage=parse-response elapsed=%s content_type=%q body=%q err=%v", p.endpoint, p.model, mode, time.Since(start), resp.Header.Get("Content-Type"), truncateForLog(string(body), 300), err)
 		return "", fmt.Errorf("parse response: %w", err)
 	}
-	if len(result.Choices) == 0 {
-		err := fmt.Errorf("no choices in response")
-		log.Printf("[runtime-provider] state=request-failed endpoint=%s model=%s mode=%s stage=validate-response elapsed=%s err=%v", p.endpoint, p.model, mode, time.Since(start), err)
-		return "", err
-	}
 
-	reply := result.Choices[0].Message.Content
 	log.Printf("[runtime-provider] state=request-finished endpoint=%s model=%s mode=%s elapsed=%s reply_chars=%d preview=%q", p.endpoint, p.model, mode, time.Since(start), len(reply), truncateForLog(reply, 120))
 	return reply, nil
+}
+
+type openAIResponse struct {
+	Choices []openAIChoice `json:"choices"`
+}
+
+type openAIChoice struct {
+	Message openAIMessage `json:"message"`
+	Delta   openAIMessage `json:"delta"`
+}
+
+type openAIMessage struct {
+	Content string `json:"content"`
+}
+
+func parseProviderResponse(body []byte, contentType string) (string, error) {
+	contentType = strings.TrimSpace(strings.ToLower(contentType))
+	if !strings.Contains(contentType, "text/event-stream") {
+		if reply, err := parseStandardOpenAIResponse(body); err == nil {
+			return reply, nil
+		}
+	}
+	if reply, err := parseSSEResponse(body); err == nil {
+		return reply, nil
+	} else if strings.Contains(contentType, "text/event-stream") {
+		return "", err
+	}
+	return parseStandardOpenAIResponse(body)
+}
+
+func parseStandardOpenAIResponse(body []byte) (string, error) {
+	var result openAIResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", err
+	}
+	reply := collectChoiceContent(result)
+	if strings.TrimSpace(reply) == "" {
+		return "", fmt.Errorf("no choices/content in response")
+	}
+	return reply, nil
+}
+
+func parseSSEResponse(body []byte) (string, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+	var builder strings.Builder
+	sawData := false
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		sawData = true
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" {
+			continue
+		}
+		if payload == "[DONE]" {
+			break
+		}
+		var result openAIResponse
+		if err := json.Unmarshal([]byte(payload), &result); err != nil {
+			return "", fmt.Errorf("invalid sse payload: %w", err)
+		}
+		builder.WriteString(collectChoiceContent(result))
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("scan sse response: %w", err)
+	}
+	if !sawData {
+		return "", fmt.Errorf("no data lines in sse response")
+	}
+	reply := strings.TrimSpace(builder.String())
+	if reply == "" {
+		return "", fmt.Errorf("no choices/content in response")
+	}
+	return reply, nil
+}
+
+func collectChoiceContent(result openAIResponse) string {
+	var builder strings.Builder
+	for _, choice := range result.Choices {
+		if text := strings.TrimSpace(choice.Delta.Content); text != "" {
+			builder.WriteString(choice.Delta.Content)
+			continue
+		}
+		if text := strings.TrimSpace(choice.Message.Content); text != "" {
+			builder.WriteString(choice.Message.Content)
+		}
+	}
+	return builder.String()
 }
 
 func TestConnection(ctx context.Context, cfg config.ProviderConfig) error {

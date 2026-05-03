@@ -38,7 +38,29 @@
     #profileContent{min-height:420px;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",Menlo,monospace;line-height:1.7}
     input:focus,textarea:focus{border-color:var(--primary);box-shadow:0 0 0 4px rgba(79,124,255,.12)}
     .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-    button{border:none;border-radius:14px;padding:13px 18px;font-size:14px;font-weight:700;cursor:pointer;transition:.18s ease}
+    .row > *{min-width:0}
+    .field-hint{margin-top:6px;font-size:12px;color:var(--muted)}
+    .pill-tabs{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 16px}
+    .pill-tab{border:none;border-radius:999px;padding:10px 14px;background:var(--primary-2);color:var(--primary);font-weight:700;cursor:pointer}
+    .pill-tab.active{background:var(--primary);color:#fff}
+    .task-board{display:grid;gap:14px}
+    .task-card{display:flex;gap:12px;align-items:flex-start;padding:14px;border:1px solid var(--line);border-radius:16px;background:#fff}
+    .task-card-main{flex:1;display:grid;gap:8px}
+    .task-card button{background:none;border:none;padding:0;text-align:left;color:inherit;cursor:pointer}
+    .tag{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:#eef3ff;color:#3555b8;font-size:12px;font-weight:700}
+    .tag.bad{background:#fff1f1;color:var(--danger)}
+    .policy-layout{display:grid;grid-template-columns:minmax(300px, 360px) minmax(0, 1fr);gap:20px;align-items:start}
+    .policy-column{display:grid;gap:20px;align-content:start}
+    .policy-card{min-height:168px;display:flex;flex-direction:column;justify-content:flex-start;padding:18px}
+    .policy-card.compact{min-height:136px}
+    .policy-card.tall{min-height:196px}
+    .policy-card .field-hint:last-child{margin-top:auto}
+    .policy-form-group{display:grid;gap:12px;margin-top:14px}
+    .policy-inline{display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap;margin-top:14px}
+    .policy-inline-checks{display:flex;gap:18px;align-items:center;flex-wrap:wrap;padding-top:4px}
+    .policy-actions{display:flex;justify-content:flex-end;margin-top:18px}
+    select{width:100%;padding:14px 15px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2);font-size:14px;color:var(--text);outline:none}
+
     button.primary{background:var(--primary);color:#fff}
     button.primary:hover{transform:translateY(-1px)}
     button.secondary{background:var(--primary-2);color:var(--primary)}
@@ -307,6 +329,198 @@
     </section>
 
     <section class="card" style="margin-top:20px">
+      <h2>主动触达 / Cron</h2>
+      <p>这里分成策略配置和任务列表两层：上面调策略，下面看提醒内容与执行时间。</p>
+      <div class="summary" id="proactiveSummary">
+        <strong>策略摘要</strong>
+        <div class="mini">加载中...</div>
+      </div>
+      <div class="memory-box" style="margin-top:18px">
+        <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+          <strong>策略开关</strong>
+          <div class="row">
+            <button id="refreshProactive" class="secondary">刷新</button>
+            <span id="proactiveMeta" class="mini">加载中...</span>
+          </div>
+        </div>
+        <div class="policy-layout" style="margin-top:12px">
+          <div class="policy-column">
+            <div class="memory-item policy-card compact">
+              <strong>全局机器人选择</strong>
+              <div class="policy-form-group">
+                <div>
+                  <label for="policyGlobalBotSelect">Bot 选择</label>
+                  <select id="policyGlobalBotSelect"></select>
+                </div>
+                <div class="field-hint" id="policyGlobalUserHint">选择 bot 后自动匹配用户。</div>
+              </div>
+              <input id="policyGlobalBotID" type="hidden">
+              <input id="policyGlobalUserID" type="hidden">
+            </div>
+            <div class="memory-item policy-card compact">
+              <strong>沉默唤醒说明</strong>
+              <div class="mini" style="margin-top:8px">用户沉默达到阈值后，AI 判断是否需要主动聊天。</div>
+              <div class="mini" id="policySilencePreview" style="margin-top:14px">当前阈值：—</div>
+            </div>
+            <div class="memory-item policy-card compact">
+              <strong>事件提醒说明</strong>
+              <div class="mini" style="margin-top:8px">AI 会根据聊天内容决定是否创建一次性提醒或长期提醒。</div>
+              <div class="mini" id="policyEventPreview" style="margin-top:14px">一次性：— · 长期：— · 提前：—</div>
+            </div>
+          </div>
+          <div class="policy-column">
+            <div class="memory-item policy-card compact">
+              <div class="row" style="justify-content:space-between; align-items:flex-start">
+                <strong>定时问候</strong>
+                <label class="row" style="align-items:center; gap:8px"><input id="policyScheduledGreetingEnabled" type="checkbox" style="width:auto"><span>启用</span></label>
+              </div>
+              <div class="mini" style="margin-top:8px">这一类是用户手动创建的日常问候任务。</div>
+              <div class="field-hint" id="policyScheduledGreetingTargetHint" style="margin-top:14px">当前继承 Bot：—</div>
+            </div>
+            <div class="memory-item policy-card">
+              <div class="row" style="justify-content:space-between; align-items:flex-start">
+                <strong>沉默唤醒</strong>
+                <label class="row" style="align-items:center; gap:8px"><input id="policySilenceEnabled" type="checkbox" style="width:auto"><span>启用</span></label>
+              </div>
+              <div class="policy-form-group">
+                <div>
+                  <label for="policySilenceMinutes">沉默多久后尝试主动聊天</label>
+                  <input id="policySilenceMinutes" type="number" min="1" placeholder="例如：5">
+                  <div class="field-hint">单位：分钟。</div>
+                </div>
+              </div>
+              <div class="field-hint" id="policySilenceTargetHint" style="margin-top:14px">当前继承 Bot：—</div>
+            </div>
+            <div class="memory-item policy-card tall">
+              <div class="row" style="justify-content:space-between; align-items:flex-start">
+                <strong>事件提醒</strong>
+                <label class="row" style="align-items:center; gap:8px"><input id="policyEventEnabled" type="checkbox" style="width:auto"><span>启用</span></label>
+              </div>
+              <div class="policy-inline">
+                <div class="policy-inline-checks">
+                  <label class="row" style="align-items:center; gap:8px"><input id="policyEventOneShot" type="checkbox" style="width:auto"><span>一次性</span></label>
+                  <label class="row" style="align-items:center; gap:8px"><input id="policyEventRecurring" type="checkbox" style="width:auto"><span>长期</span></label>
+                </div>
+                <div style="flex:1 1 280px; min-width:220px">
+                  <label for="policyEventRemindBefore">提前多久提醒</label>
+                  <input id="policyEventRemindBefore" type="number" min="0" placeholder="例如：15">
+                  <div class="field-hint">单位：分钟。</div>
+                </div>
+              </div>
+              <div class="field-hint" id="policyEventTargetHint" style="margin-top:14px">当前继承 Bot：—</div>
+            </div>
+            <div class="policy-actions">
+              <button id="savePolicies">保存策略</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="memory-box" style="margin-top:18px">
+        <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+          <strong>任务列表</strong>
+          <div class="row">
+            <button id="newProactiveTask" class="secondary">新建</button>
+            <button id="editProactiveTask" class="secondary">修改</button>
+            <button id="deleteProactiveTasks" class="secondary">删除</button>
+          </div>
+        </div>
+        <div class="pill-tabs" id="proactiveTaskTabs">
+          <button type="button" class="pill-tab active" data-bucket-tab="daily_loop">每日循环</button>
+          <button type="button" class="pill-tab" data-bucket-tab="queued">排队中</button>
+          <button type="button" class="pill-tab" data-bucket-tab="finished">已结束</button>
+          <button type="button" class="pill-tab" data-bucket-tab="error">执行错误</button>
+        </div>
+        <div id="proactiveTaskList" class="task-board">
+          <div class="mini">加载中...</div>
+        </div>
+        <div id="proactiveTaskForm" class="memory-box" style="margin-top:16px">
+          <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+            <strong>任务编辑</strong>
+            <span id="proactiveTaskFormState" class="mini">查看模式</span>
+          </div>
+          <div class="grid two">
+            <div>
+              <label for="proactiveTaskKind">类型</label>
+              <select id="proactiveTaskKind">
+                <option value="scheduled_greeting">定时问候</option>
+                <option value="event_reminder">事件提醒</option>
+              </select>
+            </div>
+            <div>
+              <label for="proactiveTaskEnabled">启用</label>
+              <label class="row" style="align-items:center; gap:8px"><input id="proactiveTaskEnabled" type="checkbox" checked style="width:auto"><span>启用此任务</span></label>
+            </div>
+            <div>
+              <label for="proactiveTaskTitle">任务标题（内部备注）</label>
+              <input id="proactiveTaskTitle" placeholder="例如：每天上班前问候">
+            </div>
+            <div>
+              <label for="proactiveTaskBotSelect">Bot 选择</label>
+              <select id="proactiveTaskBotSelect"></select>
+              <div class="field-hint" id="proactiveTaskUserHint">选择 bot 后自动带出用户 ID。</div>
+            </div>
+            <div style="grid-column:1 / -1">
+              <label for="proactiveTaskPrompt">提醒内容</label>
+              <textarea id="proactiveTaskPrompt" placeholder="卡片里主要显示这一项内容"></textarea>
+            </div>
+            <div>
+              <label for="proactiveTaskTimezone">时区</label>
+              <select id="proactiveTaskTimezone">
+                <option value="Asia/Shanghai">Asia/Shanghai（推荐）</option>
+                <option value="UTC">UTC</option>
+                <option value="Asia/Tokyo">Asia/Tokyo</option>
+                <option value="America/Los_Angeles">America/Los_Angeles</option>
+              </select>
+            </div>
+            <div>
+              <label for="proactiveTaskScheduleMode">重复方式</label>
+              <select id="proactiveTaskScheduleMode">
+                <option value="once">一次性</option>
+                <option value="daily">每天</option>
+                <option value="weekly">每周</option>
+                <option value="custom">自定义</option>
+              </select>
+            </div>
+            <div id="proactiveTaskOnceField">
+              <label for="proactiveTaskFireAt">执行时间</label>
+              <input id="proactiveTaskFireAt" type="datetime-local">
+            </div>
+            <div id="proactiveTaskDailyField" style="display:none">
+              <label for="proactiveTaskDailyTime">每天几点</label>
+              <input id="proactiveTaskDailyTime" type="time">
+            </div>
+            <div id="proactiveTaskWeeklyWeekdayField" style="display:none">
+              <label for="proactiveTaskWeeklyWeekday">星期几</label>
+              <select id="proactiveTaskWeeklyWeekday">
+                <option value="1">周一</option>
+                <option value="2">周二</option>
+                <option value="3">周三</option>
+                <option value="4">周四</option>
+                <option value="5">周五</option>
+                <option value="6">周六</option>
+                <option value="0">周日</option>
+              </select>
+            </div>
+            <div id="proactiveTaskWeeklyTimeField" style="display:none">
+              <label for="proactiveTaskWeeklyTime">每周几点</label>
+              <input id="proactiveTaskWeeklyTime" type="time">
+            </div>
+            <div id="proactiveTaskCustomField" style="display:none; grid-column:1 / -1">
+              <label for="proactiveTaskCron">高级循环规则</label>
+              <input id="proactiveTaskCron" placeholder="例如：0 8 * * *">
+              <div class="field-hint">高级模式，仅当你确实需要自定义规则时使用。Cron 本质上就是循环规则表达式。</div>
+            </div>
+          </div>
+          <input id="proactiveTaskBotID" type="hidden">
+          <input id="proactiveTaskUserID" type="hidden">
+          <div class="row" style="margin-top:12px">
+            <button id="saveProactiveTask">保存任务</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:20px">
       <h2>日志</h2>
       <p>显示最近日志，便于快速确认运行状态、AI 调用过程，以及记忆识别 / 写入动作。</p>
       <div class="logs" id="logPanel">
@@ -551,6 +765,406 @@
           </div>
         `
       }).join('')
+    }
+
+    function formatTime(value){
+      if(!value) return '—'
+      const d = new Date(value)
+      if(Number.isNaN(d.getTime())) return value
+      return d.toLocaleString()
+    }
+
+    function proactiveKindLabel(kind){
+      if(kind === 'scheduled_greeting') return '定时问候'
+      if(kind === 'silence_wakeup') return '沉默唤醒'
+      if(kind === 'event_reminder') return '事件提醒'
+      return kind || '未知类型'
+    }
+
+    function proactiveTaskBody(task){
+      const prompt = String(task?.prompt || '').trim()
+      const eventText = String(task?.schedule?.event_text || '').trim()
+      return eventText || prompt || '—'
+    }
+
+    let proactiveTasks = []
+    let proactiveTaskItems = []
+    let proactivePolicies = []
+    let proactiveTargets = []
+    let proactiveActiveBucket = 'daily_loop'
+    let selectedProactiveTaskID = ''
+    let proactiveTaskDraft = null
+    let proactiveTaskEditing = false
+    let proactiveTaskCreating = false
+
+    function emptyProactiveTask(){
+      return {
+        id: '',
+        kind: 'scheduled_greeting',
+        enabled: true,
+        bot_id: '',
+        to_user_id: '',
+        title: '',
+        prompt: '',
+        schedule: {
+          timezone: 'Asia/Shanghai',
+          cron_expr: '',
+          fire_at: ''
+        }
+      }
+    }
+
+    function proactivePolicyByKind(kind){
+      return proactivePolicies.find(item => item.kind === kind) || null
+    }
+
+    function proactiveTaskByID(id){
+      return proactiveTasks.find(item => item.id === id) || null
+    }
+
+    function proactiveTargetByBotID(botID){
+      return proactiveTargets.find(item => item.bot_id === botID) || null
+    }
+
+    function fillBotSelect(selectID, selectedBotID, includeEmptyLabel = '请选择 Bot'){
+      const select = document.getElementById(selectID)
+      if(!select) return
+      const options = [`<option value="">${escapeHtml(includeEmptyLabel)}</option>`].concat(
+        proactiveTargets.map(item => `<option value="${escapeHtml(item.bot_id || '')}">${escapeHtml(item.label || item.bot_id || '未命名 Bot')}</option>`)
+      )
+      select.innerHTML = options.join('')
+      select.value = selectedBotID || ''
+    }
+
+    function syncGlobalPolicyTarget(botID){
+      const target = proactiveTargetByBotID(botID)
+      document.getElementById('policyGlobalBotID').value = botID || ''
+      document.getElementById('policyGlobalUserID').value = target?.to_user_id || ''
+      document.getElementById('policyGlobalUserHint').textContent = target?.to_user_id
+        ? `已自动匹配用户：${target.to_user_id}`
+        : '当前未发现该 bot 的默认用户，需要先有一条实际会话或任务记录。'
+      const inheritedText = botID
+        ? `当前继承 Bot：${botID}${target?.to_user_id ? ` · 用户：${target.to_user_id}` : ''}`
+        : '当前继承 Bot：—'
+      document.getElementById('policyScheduledGreetingTargetHint').textContent = inheritedText
+      document.getElementById('policySilenceTargetHint').textContent = inheritedText
+      document.getElementById('policyEventTargetHint').textContent = inheritedText
+    }
+
+    function syncProactiveTaskTarget(botID){
+      const target = proactiveTargetByBotID(botID)
+      document.getElementById('proactiveTaskBotID').value = botID || ''
+      document.getElementById('proactiveTaskUserID').value = target?.to_user_id || ''
+      document.getElementById('proactiveTaskUserHint').textContent = target?.to_user_id
+        ? `已自动匹配用户：${target.to_user_id}`
+        : '当前未发现该 bot 的默认用户，需要先有一条实际会话或任务记录。'
+    }
+
+    function refreshPolicyPreviews(){
+      const silenceMinutes = document.getElementById('policySilenceMinutes').value || '—'
+      const oneShot = document.getElementById('policyEventOneShot').checked ? '开启' : '关闭'
+      const recurring = document.getElementById('policyEventRecurring').checked ? '开启' : '关闭'
+      const remindBefore = document.getElementById('policyEventRemindBefore').value || '—'
+      document.getElementById('policySilencePreview').textContent = `当前阈值：${silenceMinutes} 分钟`
+      document.getElementById('policyEventPreview').textContent = `一次性：${oneShot} · 长期：${recurring} · 提前：${remindBefore} 分钟`
+    }
+
+    function setProactiveScheduleMode(mode){
+      const current = mode || 'once'
+      document.getElementById('proactiveTaskScheduleMode').value = current
+      document.getElementById('proactiveTaskOnceField').style.display = current === 'once' ? 'block' : 'none'
+      document.getElementById('proactiveTaskDailyField').style.display = current === 'daily' ? 'block' : 'none'
+      document.getElementById('proactiveTaskWeeklyWeekdayField').style.display = current === 'weekly' ? 'block' : 'none'
+      document.getElementById('proactiveTaskWeeklyTimeField').style.display = current === 'weekly' ? 'block' : 'none'
+      document.getElementById('proactiveTaskCustomField').style.display = current === 'custom' ? 'block' : 'none'
+    }
+
+    function inferProactiveScheduleMode(task){
+      const cron = String(task?.schedule?.cron_expr || '').trim()
+      const fireAt = String(task?.schedule?.fire_at || '').trim()
+      if(fireAt) return 'once'
+      const daily = cron.match(/^([0-5]?\d)\s+([01]?\d|2[0-3])\s+\*\s+\*\s+\*$/)
+      if(daily) return 'daily'
+      const weekly = cron.match(/^([0-5]?\d)\s+([01]?\d|2[0-3])\s+\*\s+\*\s+([0-6])$/)
+      if(weekly) return 'weekly'
+      return cron ? 'custom' : 'once'
+    }
+
+    function parseCronParts(cron){
+      const parts = String(cron || '').trim().split(/\s+/)
+      if(parts.length !== 5) return null
+      return {minute: parts[0], hour: parts[1], day: parts[2], month: parts[3], weekday: parts[4]}
+    }
+
+    function renderProactiveTaskBoard(items, runningTasks){
+      const host = document.getElementById('proactiveTaskList')
+      const filtered = items.filter(item => (item.bucket || 'queued') === proactiveActiveBucket)
+      if(!filtered.length){
+        host.innerHTML = '<div class="mini">当前分栏下还没有任务。</div>'
+        return
+      }
+      host.innerHTML = filtered.map(item => {
+        const checked = selectedProactiveTaskIDs().includes(item.id) ? 'checked' : ''
+        const running = runningTasks.includes(item.id)
+        const tagClass = item.has_error ? 'tag bad' : 'tag'
+        return `
+          <div class="task-card">
+            <input data-proactive-checkbox type="checkbox" value="${escapeHtml(item.id || '')}" ${checked} style="width:auto; margin-top:3px">
+            <div class="task-card-main">
+              <button type="button" data-proactive-id="${escapeHtml(item.id || '')}">
+                <div class="row" style="justify-content:space-between; gap:12px">
+                  <strong>${escapeHtml(item.content || item.title || '未命名任务')}</strong>
+                  <span class="${tagClass}">${escapeHtml(running ? '执行中' : (item.last_status_text || item.bucket_label || '等待执行'))}</span>
+                </div>
+                <div class="mini">时间：${escapeHtml(formatTime(item.execute_at))}</div>
+                <div class="mini">类型：${escapeHtml(proactiveKindLabel(item.kind))}</div>
+              </button>
+            </div>
+          </div>
+        `
+      }).join('')
+    }
+
+    function setActiveProactiveBucket(bucket){
+      proactiveActiveBucket = bucket || 'daily_loop'
+      document.querySelectorAll('[data-bucket-tab]').forEach(button => {
+        button.classList.toggle('active', button.getAttribute('data-bucket-tab') === proactiveActiveBucket)
+      })
+      const scheduler = window.__proactiveSchedulerSnapshot || {}
+      const runningTasks = Array.isArray(scheduler.running_tasks) ? scheduler.running_tasks : []
+      renderProactiveTaskBoard(proactiveTaskItems, runningTasks)
+    }
+
+    function selectedProactiveTaskIDs(){
+      return Array.from(document.querySelectorAll('[data-proactive-checkbox]:checked')).map(input => input.value).filter(Boolean)
+    }
+
+    function setProactiveTaskEditorMode(editing){
+      proactiveTaskEditing = !!editing
+      document.getElementById('proactiveTaskFormState').textContent = proactiveTaskEditing ? '编辑模式' : '查看模式'
+      if(!proactiveTaskEditing){
+        proactiveTaskDraft = proactiveTaskByID(selectedProactiveTaskID) || emptyProactiveTask()
+      }
+      fillProactiveTaskForm(proactiveTaskDraft || emptyProactiveTask())
+    }
+
+    function fillProactivePolicies(policies){
+      const scheduled = proactivePolicyByKind('scheduled_greeting') || {}
+      const silence = proactivePolicyByKind('silence_wakeup') || {config:{}}
+      const eventPolicy = proactivePolicyByKind('event_reminder') || {config:{}}
+      const inheritedBotID = silence.bot_id || scheduled.bot_id || eventPolicy.bot_id || proactiveTargets[0]?.bot_id || ''
+      document.getElementById('policyScheduledGreetingEnabled').checked = scheduled.enabled !== false
+      document.getElementById('policySilenceEnabled').checked = !!silence.enabled
+      document.getElementById('policySilenceMinutes').value = silence.config?.idle_for_minutes || ''
+      fillBotSelect('policyGlobalBotSelect', inheritedBotID, '选择全局 Bot')
+      syncGlobalPolicyTarget(inheritedBotID)
+      document.getElementById('policyEventEnabled').checked = eventPolicy.enabled !== false
+      document.getElementById('policyEventOneShot').checked = !!eventPolicy.config?.allow_one_shot
+      document.getElementById('policyEventRecurring').checked = !!eventPolicy.config?.allow_recurring
+      document.getElementById('policyEventRemindBefore').value = eventPolicy.config?.remind_before_minutes ?? ''
+      refreshPolicyPreviews()
+    }
+
+    function fillProactiveTaskForm(task){
+      const current = task || emptyProactiveTask()
+      document.getElementById('proactiveTaskKind').value = current.kind || 'scheduled_greeting'
+      document.getElementById('proactiveTaskEnabled').checked = current.enabled !== false
+      document.getElementById('proactiveTaskTitle').value = current.title || ''
+      document.getElementById('proactiveTaskTimezone').value = current.schedule?.timezone || 'Asia/Shanghai'
+      fillBotSelect('proactiveTaskBotSelect', current.bot_id || '', '选择当前 Bot')
+      syncProactiveTaskTarget(current.bot_id || '')
+      document.getElementById('proactiveTaskPrompt').value = proactiveTaskBody(current) === '—' ? '' : proactiveTaskBody(current)
+      const mode = inferProactiveScheduleMode(current)
+      setProactiveScheduleMode(mode)
+      document.getElementById('proactiveTaskCron').value = current.schedule?.cron_expr || ''
+      if(current.schedule?.fire_at){
+        const fireAt = new Date(current.schedule.fire_at)
+        if(!Number.isNaN(fireAt.getTime())){
+          const local = new Date(fireAt.getTime() - fireAt.getTimezoneOffset() * 60000)
+          document.getElementById('proactiveTaskFireAt').value = local.toISOString().slice(0,16)
+        }
+      } else {
+        document.getElementById('proactiveTaskFireAt').value = ''
+      }
+      const cronParts = parseCronParts(current.schedule?.cron_expr || '')
+      if(cronParts){
+        const hh = String(cronParts.hour).padStart(2, '0')
+        const mm = String(cronParts.minute).padStart(2, '0')
+        const timeValue = `${hh}:${mm}`
+        document.getElementById('proactiveTaskDailyTime').value = timeValue
+        document.getElementById('proactiveTaskWeeklyTime').value = timeValue
+        document.getElementById('proactiveTaskWeeklyWeekday').value = cronParts.weekday === '*' ? '1' : cronParts.weekday
+      } else {
+        document.getElementById('proactiveTaskDailyTime').value = ''
+        document.getElementById('proactiveTaskWeeklyTime').value = ''
+        document.getElementById('proactiveTaskWeeklyWeekday').value = '1'
+      }
+    }
+
+    function buildProactiveTaskBody(){
+      const mode = document.getElementById('proactiveTaskScheduleMode').value
+      const timezone = document.getElementById('proactiveTaskTimezone').value.trim() || 'Asia/Shanghai'
+      let cronExpr = ''
+      let fireAt = ''
+      if(mode === 'once'){
+        const raw = document.getElementById('proactiveTaskFireAt').value
+        fireAt = raw ? new Date(raw).toISOString() : ''
+      } else if(mode === 'daily'){
+        const timeValue = document.getElementById('proactiveTaskDailyTime').value || '09:00'
+        const [hour, minute] = timeValue.split(':')
+        cronExpr = `${Number(minute)} ${Number(hour)} * * *`
+      } else if(mode === 'weekly'){
+        const timeValue = document.getElementById('proactiveTaskWeeklyTime').value || '09:00'
+        const [hour, minute] = timeValue.split(':')
+        const weekday = document.getElementById('proactiveTaskWeeklyWeekday').value || '1'
+        cronExpr = `${Number(minute)} ${Number(hour)} * * ${weekday}`
+      } else {
+        cronExpr = document.getElementById('proactiveTaskCron').value.trim()
+      }
+      return {
+        id: proactiveTaskCreating ? '' : selectedProactiveTaskID,
+        kind: document.getElementById('proactiveTaskKind').value,
+        enabled: document.getElementById('proactiveTaskEnabled').checked,
+        bot_id: document.getElementById('proactiveTaskBotID').value.trim(),
+        to_user_id: document.getElementById('proactiveTaskUserID').value.trim(),
+        title: document.getElementById('proactiveTaskTitle').value.trim(),
+        prompt: document.getElementById('proactiveTaskPrompt').value.trim(),
+        schedule: {
+          timezone,
+          cron_expr: cronExpr,
+          fire_at: fireAt
+        }
+      }
+    }
+
+    function renderProactiveStatus(data){
+      const summary = document.getElementById('proactiveSummary')
+      const meta = document.getElementById('proactiveMeta')
+      proactiveTasks = Array.isArray(data?.tasks) ? data.tasks : []
+      proactiveTaskItems = Array.isArray(data?.task_items) ? data.task_items : []
+      proactivePolicies = Array.isArray(data?.policies) ? data.policies : []
+      proactiveTargets = Array.isArray(data?.targets) ? data.targets : []
+      const scheduler = data?.scheduler || {}
+      window.__proactiveSchedulerSnapshot = scheduler
+      const runningTasks = Array.isArray(scheduler.running_tasks) ? scheduler.running_tasks : []
+      const botIDs = Array.isArray(data?.bot_ids) ? data.bot_ids : []
+      const updatedAt = new Date().toLocaleTimeString()
+      fillProactivePolicies(proactivePolicies)
+      fillBotSelect('proactiveTaskBotSelect', document.getElementById('proactiveTaskBotID').value || '', '选择当前 Bot')
+      summary.innerHTML = `
+        <strong>策略摘要</strong>
+        <div class="kv">
+          <div>调度器</div><div>${data?.scheduler_running ? '<span class="ok">运行中</span>' : '<span class="bad">未运行</span>'}</div>
+          <div>任务数</div><div>${Number(data?.task_count || 0)}</div>
+          <div>运行中任务</div><div>${Number(data?.running_task_count || 0)}</div>
+          <div>定时问候</div><div>${proactivePolicyByKind('scheduled_greeting')?.enabled !== false ? '启用' : '关闭'}</div>
+          <div>沉默唤醒</div><div>${proactivePolicyByKind('silence_wakeup')?.enabled ? '启用' : '关闭'}</div>
+          <div>事件提醒</div><div>${proactivePolicyByKind('event_reminder')?.enabled !== false ? '启用' : '关闭'}</div>
+          <div>在线 Bot</div><div>${botIDs.length ? escapeHtml(botIDs.join(', ')) : '—'}</div>
+        </div>
+      `
+      const bucketCounts = {
+        daily_loop: proactiveTaskItems.filter(item => item.bucket === 'daily_loop').length,
+        queued: proactiveTaskItems.filter(item => item.bucket === 'queued').length,
+        finished: proactiveTaskItems.filter(item => item.bucket === 'finished').length,
+        error: proactiveTaskItems.filter(item => item.bucket === 'error').length
+      }
+      meta.textContent = `已刷新 ${updatedAt} · 每日循环 ${bucketCounts.daily_loop} · 排队中 ${bucketCounts.queued} · 已结束 ${bucketCounts.finished} · 错误 ${bucketCounts.error}`
+      if(selectedProactiveTaskID && !proactiveTaskItems.some(item => item.id === selectedProactiveTaskID)){
+        selectedProactiveTaskID = ''
+      }
+      if(!proactiveTaskItems.length){
+        document.getElementById('proactiveTaskList').innerHTML = '<div class="mini">当前还没有主动提醒任务。</div>'
+        setProactiveTaskEditorMode(false)
+        return
+      }
+      const availableBuckets = new Set(proactiveTaskItems.map(item => item.bucket || 'queued'))
+      if(!availableBuckets.has(proactiveActiveBucket)){
+        proactiveActiveBucket = availableBuckets.has('queued') ? 'queued' : (availableBuckets.has('daily_loop') ? 'daily_loop' : (availableBuckets.has('finished') ? 'finished' : 'error'))
+      }
+      renderProactiveTaskBoard(proactiveTaskItems, runningTasks)
+      setActiveProactiveBucket(proactiveActiveBucket)
+      if(selectedProactiveTaskID){
+        proactiveTaskDraft = proactiveTaskByID(selectedProactiveTaskID) || emptyProactiveTask()
+        fillProactiveTaskForm(proactiveTaskDraft)
+      }
+    }
+
+    async function loadProactiveStatus(silent = false){
+      const data = await fetchJSON('/api/proactive/status')
+      renderProactiveStatus(data)
+      if(!silent){
+        const meta = document.getElementById('proactiveMeta')
+        if(meta && !String(meta.textContent || '').includes('已刷新')){
+          meta.textContent = `已刷新 ${new Date().toLocaleTimeString()}`
+        }
+      }
+    }
+
+    async function saveProactivePolicies(){
+      const globalBotID = document.getElementById('policyGlobalBotID').value.trim()
+      const globalUserID = document.getElementById('policyGlobalUserID').value.trim()
+      const requests = [
+        {
+          kind: 'scheduled_greeting',
+          enabled: document.getElementById('policyScheduledGreetingEnabled').checked,
+          title: '定时问候',
+          bot_id: globalBotID,
+          to_user_id: globalUserID
+        },
+        {
+          kind: 'silence_wakeup',
+          enabled: document.getElementById('policySilenceEnabled').checked,
+          title: '沉默唤醒',
+          bot_id: globalBotID,
+          to_user_id: globalUserID,
+          config: {
+            idle_for_minutes: Number(document.getElementById('policySilenceMinutes').value || 0)
+          }
+        },
+        {
+          kind: 'event_reminder',
+          enabled: document.getElementById('policyEventEnabled').checked,
+          title: '事件提醒',
+          bot_id: globalBotID,
+          to_user_id: globalUserID,
+          config: {
+            allow_one_shot: document.getElementById('policyEventOneShot').checked,
+            allow_recurring: document.getElementById('policyEventRecurring').checked,
+            remind_before_minutes: Number(document.getElementById('policyEventRemindBefore').value || 0)
+          }
+        }
+      ]
+      await Promise.all(requests.map(body => fetchJSON('/api/proactive/policy', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+      })))
+      await loadProactiveStatus()
+    }
+
+    async function saveProactiveTask(){
+      await fetchJSON('/api/proactive/task', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(buildProactiveTaskBody())
+      })
+      proactiveTaskCreating = false
+      proactiveTaskEditing = false
+      await loadProactiveStatus()
+    }
+
+    async function deleteSelectedProactiveTasks(){
+      const ids = selectedProactiveTaskIDs()
+      if(!ids.length) throw new Error('请先勾选至少一个任务')
+      await fetchJSON('/api/proactive/tasks/delete', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ids})
+      })
+      selectedProactiveTaskID = ''
+      proactiveTaskDraft = emptyProactiveTask()
+      await loadProactiveStatus()
     }
 
     function formatTime(value){
@@ -1200,6 +1814,68 @@
     document.getElementById('refreshLogs').addEventListener('click', () => loadLogs().catch(err => {
       document.getElementById('logOutput').textContent = '读取日志失败: ' + (err.message || '请求失败')
     }))
+    document.getElementById('refreshProactive').addEventListener('click', () => loadProactiveStatus().catch(err => {
+      document.getElementById('proactiveSummary').innerHTML = `<strong>策略摘要</strong><div class="mini bad">读取任务状态失败: ${escapeHtml(err.message || '请求失败')}</div>`
+      document.getElementById('proactiveMeta').textContent = '主动任务暂不可用'
+      document.getElementById('proactiveTaskList').innerHTML = `<div class="mini bad">读取任务列表失败: ${escapeHtml(err.message || '请求失败')}</div>`
+    }))
+    document.getElementById('savePolicies').addEventListener('click', () => saveProactivePolicies().catch(err => {
+      document.getElementById('proactiveMeta').textContent = '保存策略失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('policyGlobalBotSelect').addEventListener('change', event => {
+      syncGlobalPolicyTarget(event.target.value)
+    })
+    document.getElementById('policySilenceMinutes').addEventListener('input', refreshPolicyPreviews)
+    document.getElementById('policyEventOneShot').addEventListener('change', refreshPolicyPreviews)
+    document.getElementById('policyEventRecurring').addEventListener('change', refreshPolicyPreviews)
+    document.getElementById('policyEventRemindBefore').addEventListener('input', refreshPolicyPreviews)
+    document.getElementById('proactiveTaskScheduleMode').addEventListener('change', event => {
+      setProactiveScheduleMode(event.target.value)
+    })
+    document.getElementById('proactiveTaskBotSelect').addEventListener('change', event => {
+      syncProactiveTaskTarget(event.target.value)
+    })
+    document.getElementById('proactiveTaskTabs').addEventListener('click', event => {
+      const button = event.target.closest('[data-bucket-tab]')
+      if(!button) return
+      setActiveProactiveBucket(button.getAttribute('data-bucket-tab') || 'daily_loop')
+    })
+    document.getElementById('newProactiveTask').addEventListener('click', () => {
+      proactiveTaskCreating = true
+      proactiveTaskDraft = emptyProactiveTask()
+      selectedProactiveTaskID = ''
+      setProactiveTaskEditorMode(true)
+    })
+    document.getElementById('editProactiveTask').addEventListener('click', () => {
+      const ids = selectedProactiveTaskIDs()
+      if(ids.length !== 1){
+        document.getElementById('proactiveMeta').textContent = '请选择 1 个任务后再修改'
+        return
+      }
+      selectedProactiveTaskID = ids[0]
+      proactiveTaskCreating = false
+      proactiveTaskDraft = proactiveTaskByID(selectedProactiveTaskID) || emptyProactiveTask()
+      setProactiveTaskEditorMode(true)
+    })
+    document.getElementById('deleteProactiveTasks').addEventListener('click', () => deleteSelectedProactiveTasks().catch(err => {
+      document.getElementById('proactiveMeta').textContent = '删除任务失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('saveProactiveTask').addEventListener('click', () => saveProactiveTask().catch(err => {
+      document.getElementById('proactiveMeta').textContent = '保存任务失败: ' + (err.message || '请求失败')
+    }))
+    document.getElementById('proactiveTaskList').addEventListener('click', event => {
+      const button = event.target.closest('[data-proactive-id]')
+      if(!button) return
+      const taskID = button.getAttribute('data-proactive-id') || ''
+      if(!taskID) return
+      selectedProactiveTaskID = taskID
+      proactiveTaskCreating = false
+      proactiveTaskDraft = proactiveTaskByID(selectedProactiveTaskID) || emptyProactiveTask()
+      setProactiveTaskEditorMode(false)
+      setActiveProactiveBucket(proactiveActiveBucket)
+      const checkbox = document.querySelector(`[data-proactive-checkbox][value="${CSS.escape(taskID)}"]`)
+      if(checkbox) checkbox.checked = true
+    })
     document.getElementById('loadMemory').addEventListener('click', () => loadMemory().catch(err => {
       document.getElementById('memoryMessage').textContent = '读取记忆失败: ' + (err.message || '请求失败')
     }))
@@ -1326,12 +2002,18 @@
     loadMaterials().catch(err => {
       document.getElementById('materialsMessage').textContent = '读取素材失败: ' + err.message
     })
+    loadProactiveStatus().catch(err => {
+      document.getElementById('proactiveSummary').innerHTML = `<strong>任务摘要</strong><div class="mini bad">读取任务状态失败: ${escapeHtml(err.message)}</div>`
+      document.getElementById('proactiveMeta').textContent = '主动任务暂不可用'
+      document.getElementById('proactiveTaskList').innerHTML = `<div class="mini bad">读取任务列表失败: ${escapeHtml(err.message)}</div>`
+    })
     loadLogs().catch(err => {
       document.getElementById('logOutput').textContent = '读取日志失败: ' + err.message
       document.getElementById('logMeta').textContent = '日志暂不可用'
     })
     setInterval(() => loadBindStatus().catch(() => {}), 3000)
     setInterval(() => loadStatus().catch(() => {}), 10000)
+    setInterval(() => loadProactiveStatus(true).catch(() => {}), 10000)
   </script>
 </body>
 </html>
