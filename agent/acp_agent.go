@@ -272,7 +272,7 @@ func (a *ACPAgent) Start(ctx context.Context) error {
 	var result json.RawMessage
 	if a.protocol == protocolCodexAppServer {
 		result, err = a.rpc(initCtx, "initialize", map[string]interface{}{
-			"clientInfo": map[string]string{"name": "weclaw", "version": "0.3.0"},
+			"clientInfo": map[string]string{"name": "weone", "version": "0.3.0"},
 		})
 		if err == nil {
 			// codex app-server expects an "initialized" notification after initialize response

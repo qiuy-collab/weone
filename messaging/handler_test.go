@@ -105,7 +105,6 @@ func TestResolveAlias(t *testing.T) {
 	tests := map[string]string{
 		"cc":  "claude",
 		"cx":  "codex",
-		"oc":  "openclaw",
 		"cs":  "cursor",
 		"km":  "kimi",
 		"gm":  "gemini",

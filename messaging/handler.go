@@ -230,7 +230,6 @@ func (h *Handler) isKnownAgent(name string) bool {
 var agentAliases = map[string]string{
 	"cc":  "claude",
 	"cx":  "codex",
-	"oc":  "openclaw",
 	"cs":  "cursor",
 	"km":  "kimi",
 	"gm":  "gemini",

@@ -186,49 +186,49 @@ func envValue(keys ...string) string {
 }
 
 func loadEnv(cfg *Config) {
-	if v := envValue("WEONE_DEFAULT_AGENT", "WECLAW_DEFAULT_AGENT"); v != "" {
+	if v := envValue("WEONE_DEFAULT_AGENT"); v != "" {
 		cfg.DefaultAgent = v
 	}
-	if v := envValue("WEONE_API_ADDR", "WECLAW_API_ADDR"); v != "" {
+	if v := envValue("WEONE_API_ADDR"); v != "" {
 		cfg.APIAddr = v
 	}
-	if v := envValue("WEONE_SAVE_DIR", "WECLAW_SAVE_DIR"); v != "" {
+	if v := envValue("WEONE_SAVE_DIR"); v != "" {
 		cfg.SaveDir = v
 	}
-	if v := envValue("WEONE_RUNTIME_ENABLED", "WECLAW_RUNTIME_ENABLED"); v != "" {
+	if v := envValue("WEONE_RUNTIME_ENABLED"); v != "" {
 		cfg.Runtime.Enabled = v != "0" && v != "false"
 	}
-	if v := envValue("WEONE_RUNTIME_NAME", "WECLAW_RUNTIME_NAME"); v != "" {
+	if v := envValue("WEONE_RUNTIME_NAME"); v != "" {
 		cfg.Runtime.Name = v
 	}
-	if v := envValue("WEONE_PROVIDER_TYPE", "WECLAW_PROVIDER_TYPE"); v != "" {
+	if v := envValue("WEONE_PROVIDER_TYPE"); v != "" {
 		cfg.Runtime.Provider.Type = v
 	}
-	if v := envValue("WEONE_PROVIDER_ENDPOINT", "WECLAW_PROVIDER_ENDPOINT"); v != "" {
+	if v := envValue("WEONE_PROVIDER_ENDPOINT"); v != "" {
 		cfg.Runtime.Provider.Endpoint = v
 	}
-	if v := envValue("WEONE_PROVIDER_API_KEY", "WECLAW_PROVIDER_API_KEY"); v != "" {
+	if v := envValue("WEONE_PROVIDER_API_KEY"); v != "" {
 		cfg.Runtime.Provider.APIKey = v
 	}
-	if v := envValue("WEONE_PROVIDER_MODEL", "WECLAW_PROVIDER_MODEL"); v != "" {
+	if v := envValue("WEONE_PROVIDER_MODEL"); v != "" {
 		cfg.Runtime.Provider.Model = v
 	}
-	if v := envValue("WEONE_PERSONA_SYSTEM_PROMPT", "WECLAW_PERSONA_SYSTEM_PROMPT"); v != "" {
+	if v := envValue("WEONE_PERSONA_SYSTEM_PROMPT"); v != "" {
 		cfg.Runtime.Persona.SystemPrompt = v
 	}
-	if v := envValue("WEONE_PERSONA_IDENTITY", "WECLAW_PERSONA_IDENTITY"); v != "" {
+	if v := envValue("WEONE_PERSONA_IDENTITY"); v != "" {
 		cfg.Runtime.Persona.Identity = v
 	}
-	if v := envValue("WEONE_PERSONA_TONE", "WECLAW_PERSONA_TONE"); v != "" {
+	if v := envValue("WEONE_PERSONA_TONE"); v != "" {
 		cfg.Runtime.Persona.Tone = v
 	}
-	if v := envValue("WEONE_PERSONA_STYLE", "WECLAW_PERSONA_STYLE"); v != "" {
+	if v := envValue("WEONE_PERSONA_STYLE"); v != "" {
 		cfg.Runtime.Persona.Style = v
 	}
-	if v := envValue("WEONE_PROACTIVE_ENABLED", "WECLAW_PROACTIVE_ENABLED"); v != "" {
+	if v := envValue("WEONE_PROACTIVE_ENABLED"); v != "" {
 		cfg.Proactive.Enabled = v != "0" && v != "false"
 	}
-	if v := envValue("WEONE_PROACTIVE_DEFAULT_TIMEZONE", "WECLAW_PROACTIVE_DEFAULT_TIMEZONE"); v != "" {
+	if v := envValue("WEONE_PROACTIVE_DEFAULT_TIMEZONE"); v != "" {
 		cfg.Proactive.DefaultTimezone = v
 	}
 }

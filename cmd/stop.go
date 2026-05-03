@@ -14,7 +14,7 @@ var stopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Stop the background weone process",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if stopAllWeclaw() {
+		if stopAllWeone() {
 			fmt.Println("weone stopped")
 			return nil
 		}

@@ -77,7 +77,7 @@ func (m *Monitor) Run(ctx context.Context) error {
 			log.Printf("[monitor] bot=%s state=reconnecting failures=%d/%d backoff=%s err=%v",
 				m.client.BotID(), m.failures, maxConsecutiveFailures, backoff, err)
 			if m.failures == maxConsecutiveFailures {
-				log.Printf("[monitor] WARNING: %d consecutive failures. If this persists, run `weclaw login` to re-authenticate.", maxConsecutiveFailures)
+				log.Printf("[monitor] WARNING: %d consecutive failures. If this persists, run `weone login` to re-authenticate.", maxConsecutiveFailures)
 			}
 			select {
 			case <-time.After(backoff):

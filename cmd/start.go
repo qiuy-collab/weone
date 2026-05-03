@@ -546,8 +546,8 @@ func stopProcess(pid int) bool {
 	return !processExists(pid)
 }
 
-// stopAllWeclaw kills the running weclaw process tracked by the PID file.
-func stopAllWeclaw() bool {
+// stopAllWeone kills the running weone process tracked by the PID file.
+func stopAllWeone() bool {
 	pid, err := readPid()
 	if err != nil {
 		return false

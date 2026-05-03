@@ -2,13 +2,10 @@ package config
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -40,7 +37,6 @@ var agentCandidates = []agentCandidate{
 	{Name: "kimi", Binary: "kimi", Args: []string{"acp"}, Type: "acp", Model: ""},
 	{Name: "gemini", Binary: "gemini", Args: []string{"--acp"}, Type: "acp", Model: ""},
 	{Name: "opencode", Binary: "opencode", Args: []string{"acp"}, Type: "acp", Model: ""},
-	{Name: "openclaw", Binary: "openclaw", Type: "acp", Model: "openclaw:main"}, // args built dynamically
 	{Name: "pi", Binary: "pi-acp", Type: "acp", Model: ""},
 	{Name: "copilot", Binary: "copilot", Args: []string{"--acp", "--stdio"}, Type: "acp", Model: ""},
 	{Name: "droid", Binary: "droid", Args: []string{"exec", "--output-format", "acp"}, Type: "acp", Model: ""},
@@ -52,7 +48,7 @@ var agentCandidates = []agentCandidate{
 // defaultOrder defines the priority for choosing the default agent.
 // Lower index = higher priority.
 var defaultOrder = []string{
-	"claude", "codex", "cursor", "kimi", "gemini", "opencode", "openclaw",
+	"claude", "codex", "cursor", "kimi", "gemini", "opencode",
 	"pi", "copilot", "droid", "iflow", "kiro", "qwen",
 }
 
@@ -63,7 +59,6 @@ func DetectAndConfigure(cfg *Config) bool {
 	modified := false
 
 	for _, candidate := range agentCandidates {
-		// Skip if this agent name is already configured
 		if _, exists := cfg.Agents[candidate.Name]; exists {
 			continue
 		}
@@ -73,7 +68,6 @@ func DetectAndConfigure(cfg *Config) bool {
 			continue
 		}
 
-		// Run capability probe if specified
 		if len(candidate.CheckArgs) > 0 && !commandProbe(path, candidate.CheckArgs) {
 			log.Printf("[config] skipping %s at %s (type=%s): probe failed (%v)", candidate.Name, path, candidate.Type, candidate.CheckArgs)
 			continue
@@ -89,71 +83,6 @@ func DetectAndConfigure(cfg *Config) bool {
 		modified = true
 	}
 
-	// Special handling for openclaw: prefer HTTP mode over ACP to avoid
-	// session routing conflicts with openclaw-weixin plugin (see #9).
-	// Priority: HTTP (gateway) > ACP (with user-configured --session) > skip.
-	if agCfg, exists := cfg.Agents["openclaw"]; exists && agCfg.Type == "acp" && len(agCfg.Args) == 0 {
-		gwURL, gwToken, gwPassword := loadOpenclawGateway()
-		if gwURL != "" {
-			// Prefer HTTP mode — no session routing issues
-			httpURL := gwURL
-			httpURL = strings.Replace(httpURL, "wss://", "https://", 1)
-			httpURL = strings.Replace(httpURL, "ws://", "http://", 1)
-			endpoint := strings.TrimRight(httpURL, "/") + "/v1/chat/completions"
-			log.Printf("[config] openclaw using HTTP mode: %s", endpoint)
-			cfg.Agents["openclaw"] = AgentConfig{
-				Type:     "http",
-				Endpoint: endpoint,
-				APIKey:   gwToken,
-				Headers:  map[string]string{"x-openclaw-scopes": "operator.write"},
-				Model:    "openclaw:main",
-			}
-			modified = true
-
-			// Also register openclaw-acp as a separate agent for users who want ACP
-			if _, apcExists := cfg.Agents["openclaw-acp"]; !apcExists {
-				args := []string{"acp", "--url", gwURL}
-				if gwToken != "" {
-					args = append(args, "--token", gwToken)
-				} else if gwPassword != "" {
-					args = append(args, "--password", gwPassword)
-				}
-				cfg.Agents["openclaw-acp"] = AgentConfig{
-					Type:    "acp",
-					Command: agCfg.Command,
-					Args:    args,
-					Model:   "openclaw:main",
-				}
-				log.Printf("[config] openclaw ACP also available as 'openclaw-acp' (use /openclaw-acp to switch)")
-			}
-		} else {
-			log.Printf("[config] openclaw binary found but no gateway config, skipping")
-			delete(cfg.Agents, "openclaw")
-			modified = true
-		}
-	}
-
-	// Fallback: if openclaw still not configured, try HTTP via gateway config.
-	if _, exists := cfg.Agents["openclaw"]; !exists {
-		gwURL, gwToken, _ := loadOpenclawGateway()
-		if gwURL != "" {
-			httpURL := gwURL
-			httpURL = strings.Replace(httpURL, "wss://", "https://", 1)
-			httpURL = strings.Replace(httpURL, "ws://", "http://", 1)
-			endpoint := strings.TrimRight(httpURL, "/") + "/v1/chat/completions"
-			log.Printf("[config] using openclaw HTTP: %s", endpoint)
-			cfg.Agents["openclaw"] = AgentConfig{
-				Type:     "http",
-				Endpoint: endpoint,
-				APIKey:   gwToken,
-				Headers:  map[string]string{"x-openclaw-scopes": "operator.write"},
-				Model:    "openclaw:main",
-			}
-			modified = true
-		}
-	}
-
-	// Pick the default reply engine.
 	if cfg.Runtime.Enabled {
 		runtimeName := cfg.Runtime.Name
 		if runtimeName == "" {
@@ -180,73 +109,6 @@ func DetectAndConfigure(cfg *Config) bool {
 	return modified
 }
 
-// loadOpenclawGateway resolves openclaw gateway connection info.
-// Priority: env vars > ~/.openclaw/openclaw.json.
-// Returns (url, token, password). url="" means not configured.
-func loadOpenclawGateway() (gwURL, gwToken, gwPassword string) {
-	// 1. Environment variables take priority
-	gwURL = os.Getenv("OPENCLAW_GATEWAY_URL")
-	gwToken = os.Getenv("OPENCLAW_GATEWAY_TOKEN")
-	gwPassword = os.Getenv("OPENCLAW_GATEWAY_PASSWORD")
-	if gwURL != "" {
-		return
-	}
-
-	// 2. Read from ~/.openclaw/openclaw.json
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-
-	data, err := os.ReadFile(filepath.Join(home, ".openclaw", "openclaw.json"))
-	if err != nil {
-		return
-	}
-
-	var ocCfg struct {
-		Gateway struct {
-			Port int    `json:"port"`
-			Mode string `json:"mode"`
-			Auth struct {
-				Mode     string `json:"mode"`
-				Token    string `json:"token"`
-				Password string `json:"password"`
-			} `json:"auth"`
-			Remote struct {
-				URL   string `json:"url"`
-				Token string `json:"token"`
-			} `json:"remote"`
-		} `json:"gateway"`
-	}
-	if err := json.Unmarshal(data, &ocCfg); err != nil {
-		log.Printf("[config] failed to parse openclaw config: %v", err)
-		return
-	}
-
-	gw := ocCfg.Gateway
-
-	// Remote gateway (gateway.remote.url)
-	if gw.Remote.URL != "" {
-		gwURL = gw.Remote.URL
-		gwToken = gw.Remote.Token
-		return
-	}
-
-	// Local gateway (gateway.port + gateway.auth)
-	if gw.Port > 0 {
-		gwURL = fmt.Sprintf("ws://127.0.0.1:%d", gw.Port)
-		switch gw.Auth.Mode {
-		case "token":
-			gwToken = gw.Auth.Token
-		case "password":
-			gwPassword = gw.Auth.Password
-		}
-		return
-	}
-
-	return
-}
-
 // commandProbe runs a binary with args and returns true if it exits 0.
 func commandProbe(binary string, args []string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -268,12 +130,10 @@ func agentExists(cfg *Config, name string) bool {
 // binaries installed through version managers like nvm, mise, etc. that only
 // add their paths in interactive shells.
 func lookPath(binary string) (string, error) {
-	// Fast path: binary is in current PATH
 	if p, err := exec.LookPath(binary); err == nil {
 		return p, nil
 	}
 
-	// Fallback: resolve via login interactive shell (sources .zshrc/.bashrc)
 	shell := "zsh"
 	if runtime.GOOS != "darwin" {
 		shell = "bash"

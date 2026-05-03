@@ -30,7 +30,7 @@ func extractImageText(ctx context.Context, fileName string, data []byte) (OCRRes
 	if ext == "" {
 		ext = ".img"
 	}
-	tmp, err := os.CreateTemp("", "weclaw-ocr-*"+ext)
+	tmp, err := os.CreateTemp("", "weone-ocr-*"+ext)
 	if err != nil {
 		return OCRResult{}, fmt.Errorf("create temp image: %w", err)
 	}
