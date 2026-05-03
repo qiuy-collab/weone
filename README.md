@@ -129,17 +129,33 @@ http://127.0.0.1:18011
 
 ## Screenshots
 
-### 控制台首页
+### 素材实例
 
-这是主控制台首页，用来完成模型配置、人设设置、状态查看和主要功能入口管理。
+| | |
+|:---:|:---:|
+| <img src="previews/materials-send-chat.jpg" width="320" /> | <img src="previews/silence-wakeup-chat.jpg" width="320" /> |
+
+左侧是素材命中后的聊天发送效果，右侧是沉默唤醒的主动聊天效果。
+
+### 主控制台
+
+模型配置、人设设置、状态查看和主要功能入口都从这里开始。
 
 <p align="center">
   <img src="previews/console-overview.png" width="900" />
 </p>
 
-### 主动触达策略
+### 弹性触达策略 + 绑定 + 记忆
 
-这张图对应主动触达的策略层，主要配置全局 Bot、沉默唤醒、事件提醒和定时问候。
+这一页包含全局机器人选择、主动触达策略、微信绑定二维码与记忆区域。
+
+<p align="center">
+  <img src="previews/bind-and-memory.png" width="900" />
+</p>
+
+### 主动触达策略区域
+
+这里集中配置定时问候、沉默唤醒和事件提醒。
 
 <p align="center">
   <img src="previews/proactive-strategy.png" width="900" />
@@ -147,34 +163,26 @@ http://127.0.0.1:18011
 
 ### 主动任务列表
 
-这张图对应主动任务看板，用来查看 AI 创建的提醒任务、循环任务、失败任务和已完成任务。
+用于查看 AI 创建的提醒任务、循环任务、失败任务和已完成任务。
 
 <p align="center">
   <img src="previews/proactive-task-board.png" width="900" />
 </p>
 
-### 任务编辑面板
+### 主动任务编辑
 
-这张图对应主动任务编辑区，支持手动创建和修改定时问候 / 事件提醒任务。
+用于手动创建和修改定时问候 / 事件提醒任务。
 
 <p align="center">
   <img src="previews/proactive-task-editor.png" width="900" />
 </p>
 
-### 素材管理
+### 素材管理后台
 
-这张图对应素材管理后台，用来导入素材、做 AI 分析、维护标签和描述。
+用于导入素材、执行 AI 分析、维护标签和描述。
 
 <p align="center">
   <img src="previews/materials-library.png" width="900" />
-</p>
-
-### 微信绑定与记忆模块
-
-这张图对应微信绑定流程和记忆模块区域，用来查看二维码绑定状态、长期画像和最近短期记忆。
-
-<p align="center">
-  <img src="previews/bind-and-memory.png" width="900" />
 </p>
 
 ---
