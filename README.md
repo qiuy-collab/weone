@@ -1,4 +1,8 @@
-# weone
+<p align="center">
+  <img src="docs/logo.png" width="140" alt="weone logo" />
+</p>
+
+<h1 align="center">weone</h1>
 
 微信 AI 陪伴与主动触达桥接器。
 
